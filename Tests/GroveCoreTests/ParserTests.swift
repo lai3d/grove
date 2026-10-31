@@ -4,31 +4,18 @@ import Testing
 @testable import GroveCore
 
 @Suite struct ParserTests {
-    @Test func decorations() {
-        let refs = GitParse.decorations("HEAD -> refs/heads/main, refs/remotes/origin/main, refs/remotes/origin/HEAD, tag: refs/tags/v1.0, refs/heads/feature/x")
-        #expect(refs == [
-            RefLabel(kind: .branch, name: "main", isCurrent: true),
-            RefLabel(kind: .remote, name: "origin/main"),
-            RefLabel(kind: .tag, name: "v1.0"),
-            RefLabel(kind: .branch, name: "feature/x"),
-        ])
-        #expect(GitParse.decorations("HEAD") == [RefLabel(kind: .head, name: "HEAD", isCurrent: true)])
-        #expect(GitParse.decorations("").isEmpty)
-    }
-
     @Test func commitRecord() throws {
-        let rec = "abc123\u{1f}p1 p2\u{1f}Ada Lovelace\u{1f}ada@example.com\u{1f}1700000000\u{1f}Fix: 中文 subject\u{1f}tag: refs/tags/v2"
+        let rec = "abc123\u{1f}p1 p2\u{1f}Ada Lovelace\u{1f}ada@example.com\u{1f}1700000000\u{1f}Fix: 中文 subject"
         let c = try #require(GitParse.commit(Data(rec.utf8)))
         #expect(c.id == "abc123" && c.parents == ["p1", "p2"] && c.isMerge)
         #expect(c.authorName == "Ada Lovelace" && c.authorEmail == "ada@example.com")
         #expect(c.date == Date(timeIntervalSince1970: 1_700_000_000))
         #expect(c.subject == "Fix: 中文 subject")
-        #expect(c.refs == [RefLabel(kind: .tag, name: "v2")])
     }
 
-    @Test func commitRecordWithoutDecorations() throws {
-        let c = try #require(GitParse.commit(Data("abc\u{1f}p\u{1f}A\u{1f}a@x\u{1f}1\u{1f}subject".utf8)))
-        #expect(c.subject == "subject" && c.refs.isEmpty)
+    @Test func subjectContainingSeparator() throws {
+        let c = try #require(GitParse.commit(Data("abc\u{1f}p\u{1f}A\u{1f}a@x\u{1f}1\u{1f}odd\u{1f}subject".utf8)))
+        #expect(c.subject == "odd\u{1f}subject")
     }
 
     @Test func decorationsFromRefs() {
@@ -47,8 +34,8 @@ import Testing
     }
 
     @Test func rootCommitRecord() throws {
-        let c = try #require(GitParse.commit(Data("\nabc\u{1f}\u{1f}A\u{1f}a@x\u{1f}1\u{1f}init\u{1f}".utf8)))
-        #expect(c.id == "abc" && c.parents.isEmpty && c.refs.isEmpty && c.subject == "init")
+        let c = try #require(GitParse.commit(Data("\nabc\u{1f}\u{1f}A\u{1f}a@x\u{1f}1\u{1f}init".utf8)))
+        #expect(c.id == "abc" && c.parents.isEmpty && c.subject == "init")
     }
 
     @Test func statusPorcelainV2() {

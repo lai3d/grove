@@ -21,43 +21,8 @@ public enum GitParse {
             authorName: String(f[2]),
             authorEmail: String(f[3]),
             date: Date(timeIntervalSince1970: TimeInterval(f[4]) ?? 0),
-            subject: String(f[5]),
-            refs: f.count > 6 ? decorations(String(f[6...].joined(separator: String(fieldSeparator)))) : []
+            subject: f[5...].joined(separator: String(fieldSeparator))
         )
-    }
-
-    /// Parses `%D` produced with `--decorate=full`.
-    public static func decorations(_ s: String) -> [RefLabel] {
-        var out: [RefLabel] = []
-        for raw in s.components(separatedBy: ", ") {
-            let item = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if item.isEmpty { continue }
-            if item.hasPrefix("HEAD -> ") {
-                let target = String(item.dropFirst("HEAD -> ".count))
-                if let label = label(for: target, current: true) { out.append(label) }
-            } else if item == "HEAD" {
-                out.append(RefLabel(kind: .head, name: "HEAD", isCurrent: true))
-            } else if item.hasPrefix("tag: ") {
-                let name = String(item.dropFirst("tag: ".count))
-                out.append(RefLabel(kind: .tag, name: strip(name, "refs/tags/")))
-            } else if let label = label(for: item, current: false) {
-                out.append(label)
-            }
-        }
-        return out
-    }
-
-    private static func label(for ref: String, current: Bool) -> RefLabel? {
-        if ref.hasPrefix("refs/heads/") {
-            return RefLabel(kind: .branch, name: strip(ref, "refs/heads/"), isCurrent: current)
-        }
-        if ref.hasPrefix("refs/remotes/") {
-            if ref.hasSuffix("/HEAD") { return nil }
-            return RefLabel(kind: .remote, name: strip(ref, "refs/remotes/"))
-        }
-        if ref.hasPrefix("refs/tags/") { return RefLabel(kind: .tag, name: strip(ref, "refs/tags/")) }
-        if ref == "refs/stash" { return nil }
-        return RefLabel(kind: .branch, name: ref, isCurrent: current)
     }
 
     private static func strip(_ s: String, _ prefix: String) -> String {

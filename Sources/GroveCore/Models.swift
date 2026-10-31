@@ -21,7 +21,6 @@ public struct Commit: Sendable, Hashable, Identifiable {
     public let authorEmail: String
     public let date: Date
     public let subject: String
-    public let refs: [RefLabel]
 
     public var shortID: String { String(id.prefix(8)) }
     public var isMerge: Bool { parents.count > 1 }

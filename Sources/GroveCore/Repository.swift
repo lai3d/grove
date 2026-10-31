@@ -524,7 +524,7 @@ public actor Repository {
         let rewritten = Self.rewriteParents(all.map { ($0.id, $0.parents) }, keeping: keep)
         return all.filter { keep.contains($0.id) }.map { c in
             Commit(id: c.id, parents: rewritten[c.id] ?? [], authorName: c.authorName, authorEmail: c.authorEmail,
-                   date: c.date, subject: c.subject, refs: c.refs)
+                   date: c.date, subject: c.subject)
         }
     }
 
