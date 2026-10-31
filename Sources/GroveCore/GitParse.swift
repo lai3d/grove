@@ -1,0 +1,149 @@
+import Foundation
+
+/// Parsers for git's machine-readable output formats.
+public enum GitParse {
+    static let fieldSeparator: Character = "\u{1f}"
+
+    /// `--format` used with `git log -z`, matched by `commit(_:)`.
+    public static let logFormat = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%D"
+
+    public static func commit(_ record: Data) -> Commit? {
+        let s = String(decoding: record, as: UTF8.self)
+        let f = s.split(separator: fieldSeparator, omittingEmptySubsequences: false)
+        guard f.count >= 7 else { return nil }
+        let id = f[0].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return nil }
+        return Commit(
+            id: id,
+            parents: f[1].split(separator: " ").map(String.init),
+            authorName: String(f[2]),
+            authorEmail: String(f[3]),
+            date: Date(timeIntervalSince1970: TimeInterval(f[4]) ?? 0),
+            subject: String(f[5]),
+            refs: decorations(String(f[6...].joined(separator: String(fieldSeparator))))
+        )
+    }
+
+    /// Parses `%D` produced with `--decorate=full`.
+    public static func decorations(_ s: String) -> [RefLabel] {
+        var out: [RefLabel] = []
+        for raw in s.components(separatedBy: ", ") {
+            let item = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if item.isEmpty { continue }
+            if item.hasPrefix("HEAD -> ") {
+                let target = String(item.dropFirst("HEAD -> ".count))
+                if let label = label(for: target, current: true) { out.append(label) }
+            } else if item == "HEAD" {
+                out.append(RefLabel(kind: .head, name: "HEAD", isCurrent: true))
+            } else if item.hasPrefix("tag: ") {
+                let name = String(item.dropFirst("tag: ".count))
+                out.append(RefLabel(kind: .tag, name: strip(name, "refs/tags/")))
+            } else if let label = label(for: item, current: false) {
+                out.append(label)
+            }
+        }
+        return out
+    }
+
+    private static func label(for ref: String, current: Bool) -> RefLabel? {
+        if ref.hasPrefix("refs/heads/") {
+            return RefLabel(kind: .branch, name: strip(ref, "refs/heads/"), isCurrent: current)
+        }
+        if ref.hasPrefix("refs/remotes/") {
+            if ref.hasSuffix("/HEAD") { return nil }
+            return RefLabel(kind: .remote, name: strip(ref, "refs/remotes/"))
+        }
+        if ref.hasPrefix("refs/tags/") { return RefLabel(kind: .tag, name: strip(ref, "refs/tags/")) }
+        if ref == "refs/stash" { return nil }
+        return RefLabel(kind: .branch, name: ref, isCurrent: current)
+    }
+
+    private static func strip(_ s: String, _ prefix: String) -> String {
+        s.hasPrefix(prefix) ? String(s.dropFirst(prefix.count)) : s
+    }
+
+    /// `for-each-ref` format matched by `refs(_:)`.
+    public static let refFormat = "--format=%(refname)%1f%(objectname)%1f%(*objectname)%1f%(upstream:short)%1f%(upstream:track)"
+
+    public static func refs(_ data: Data) -> [Ref] {
+        String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line in
+            let f = line.split(separator: fieldSeparator, omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 5 else { return nil }
+            let full = f[0]
+            let kind: Ref.Kind
+            let name: String
+            if full.hasPrefix("refs/heads/") {
+                kind = .branch; name = strip(full, "refs/heads/")
+            } else if full.hasPrefix("refs/remotes/") {
+                if full.hasSuffix("/HEAD") { return nil }
+                kind = .remote; name = strip(full, "refs/remotes/")
+            } else if full.hasPrefix("refs/tags/") {
+                kind = .tag; name = strip(full, "refs/tags/")
+            } else {
+                return nil
+            }
+            return Ref(fullName: full, kind: kind, name: name,
+                       target: f[2].isEmpty ? f[1] : f[2],
+                       upstream: f[3].isEmpty ? nil : f[3], track: f[4])
+        }
+    }
+
+    /// `git status --porcelain=v2 -z`.
+    public static func status(_ data: Data) -> [FileChange] {
+        let tokens = data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        var out: [FileChange] = []
+        var i = 0
+        while i < tokens.count {
+            let t = tokens[i]
+            i += 1
+            guard let type = t.first else { continue }
+            switch type {
+            case "1":
+                let p = t.split(separator: " ", maxSplits: 8, omittingEmptySubsequences: false)
+                guard p.count == 9 else { continue }
+                out.append(change(.ordinary, xy: p[1], path: String(p[8]), orig: nil))
+            case "2":
+                let p = t.split(separator: " ", maxSplits: 9, omittingEmptySubsequences: false)
+                guard p.count == 10 else { continue }
+                let orig = i < tokens.count ? tokens[i] : nil
+                i += 1
+                out.append(change(.renamed, xy: p[1], path: String(p[9]), orig: orig))
+            case "u":
+                let p = t.split(separator: " ", maxSplits: 10, omittingEmptySubsequences: false)
+                guard p.count == 11 else { continue }
+                out.append(change(.unmerged, xy: p[1], path: String(p[10]), orig: nil))
+            case "?":
+                out.append(FileChange(kind: .untracked, path: String(t.dropFirst(2)), origPath: nil, index: "?", worktree: "?"))
+            default:
+                continue  // "#" headers, "!" ignored
+            }
+        }
+        return out
+    }
+
+    private static func change(_ kind: FileChange.Kind, xy: Substring, path: String, orig: String?) -> FileChange {
+        let chars = Array(xy)
+        return FileChange(kind: kind, path: path, origPath: orig,
+                          index: chars.first ?? ".", worktree: chars.count > 1 ? chars[1] : ".")
+    }
+
+    /// `git diff --name-status -z` / `git diff-tree --name-status -z`.
+    public static func nameStatus(_ data: Data) -> [ChangedFile] {
+        let tokens = data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        var out: [ChangedFile] = []
+        var i = 0
+        while i < tokens.count {
+            let status = tokens[i]
+            if status.first == "R" || status.first == "C" {
+                guard i + 2 < tokens.count else { break }
+                out.append(ChangedFile(status: status, path: tokens[i + 2], origPath: tokens[i + 1]))
+                i += 3
+            } else {
+                guard i + 1 < tokens.count else { break }
+                out.append(ChangedFile(status: status, path: tokens[i + 1], origPath: nil))
+                i += 2
+            }
+        }
+        return out
+    }
+}

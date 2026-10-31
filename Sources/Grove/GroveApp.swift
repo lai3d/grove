@@ -1,0 +1,110 @@
+import AppKit
+import GroveCore
+import SwiftUI
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        signal(SIGPIPE, SIG_IGN)
+        // Needed when launched as a bare SwiftPM executable (no .app bundle).
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+
+@main
+struct GroveApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
+    var body: some Scene {
+        // One window per repository; a window without a value shows the welcome screen.
+        WindowGroup("Grove", for: URL.self) { $url in
+            RootView(url: $url)
+                .frame(minWidth: 1000, minHeight: 640)
+        }
+        .windowToolbarStyle(.unified)
+        .commands { GroveCommands() }
+    }
+}
+
+struct GroveCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.repoModel) private var model
+
+    var body: some Commands {
+        CommandGroup(replacing: .newItem) {
+            Button("Open Repository…") {
+                if let url = RepositoryPicker.choose() { openWindow(value: url) }
+            }
+            .keyboardShortcut("o")
+        }
+        CommandMenu("Repository") {
+            Button("Refresh") { Task { await model?.refresh() } }
+                .keyboardShortcut("r")
+                .disabled(model == nil)
+            Divider()
+            Button("Working Copy") { model?.sidebarSelection = .workingCopy }
+                .keyboardShortcut("1")
+                .disabled(model == nil)
+            Button("History") { model?.sidebarSelection = .history }
+                .keyboardShortcut("2")
+                .disabled(model == nil)
+        }
+    }
+}
+
+struct RepoModelKey: FocusedValueKey {
+    typealias Value = RepoModel
+}
+
+extension FocusedValues {
+    var repoModel: RepoModel? {
+        get { self[RepoModelKey.self] }
+        set { self[RepoModelKey.self] = newValue }
+    }
+}
+
+/// `GROVE_REPO=/path` or a first CLI argument opens that repository at launch.
+@MainActor
+enum LaunchOptions {
+    private static var pending: URL? = {
+        let env = ProcessInfo.processInfo.environment["GROVE_REPO"]
+        let arg = CommandLine.arguments.dropFirst().first { !$0.hasPrefix("-") }
+        return (env ?? arg).map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }
+    }()
+
+    static func take() -> URL? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
+@MainActor
+enum RepositoryPicker {
+    static func choose() -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Open"
+        panel.message = "Choose a Git working tree"
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+enum RecentRepositories {
+    private static let key = "recentRepositories"
+
+    static func all() -> [URL] {
+        (UserDefaults.standard.stringArray(forKey: key) ?? []).map { URL(fileURLWithPath: $0) }
+    }
+
+    static func add(_ url: URL) {
+        var paths = UserDefaults.standard.stringArray(forKey: key) ?? []
+        paths.removeAll { $0 == url.path }
+        paths.insert(url.path, at: 0)
+        UserDefaults.standard.set(Array(paths.prefix(12)), forKey: key)
+    }
+}
