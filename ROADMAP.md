@@ -33,7 +33,7 @@ Estimates are Claude Code session time.
 | 2.1 | ✅ History search | Filter by message / author / SHA as you type; path filter (`-- path`) | 0.4h |
 | 2.2 | ✅ Quick switcher | ⌘K: fuzzy branch / tag jump (⌘↩ checks out), commit search by subject / SHA, `>` for commands (one palette: ⇧⌘P is Push) | 0.4h |
 | 2.3 | ✅ Merge & rebase | Merge / rebase onto a branch; in-progress banner (continue / abort / skip), conflicted files with take ours / theirs / mark resolved | 0.8h |
-| 2.4 | ⬜ Undo | ⌘Z for Grove's own commit / amend / reset / checkout / merge, via reflog + recorded pre-op state | 0.6h |
+| 2.4 | ✅ Undo | ⌘Z (Edit ▸ Undo <action>) for commit, amend, reset (hard too: uncommitted changes are snapshotted), merge / rebase / cherry-pick / revert / pull, checkout, create / delete branch, discard (incl. untracked files), drop stash. Redo not yet | 0.6h |
 | 2.5 | 🚧 File history & blame | ✅ History of one path (Show History → path-limited log with rewritten parents, done in 2.1); ⬜ follow renames; ⬜ blame gutter with commit jump | 0.6h |
 | 2.6 | ⬜ Better diffs | Side-by-side mode, word-level highlights, syntax highlighting, image diff via QuickLook | 1h |
 | 2.7 | ⬜ Interactive rebase | Reorder / squash / fixup / reword / drop by drag, runs with a scripted `GIT_SEQUENCE_EDITOR` | 1h |

@@ -175,6 +175,10 @@ public actor Repository {
         }
     }
 
+    public func switchBranch(_ name: String) async throws {
+        _ = try await git.run(["switch", "--no-guess", name], in: root)
+    }
+
     public func checkoutDetached(_ commitID: String) async throws {
         _ = try await git.run(["switch", "--detach", commitID], in: root)
     }
@@ -426,6 +430,63 @@ public actor Repository {
 
     public func markResolved(_ path: String) async throws {
         _ = try await git.run(["add", "--", path], in: root)
+    }
+
+    // MARK: Undo support
+
+    /// Commit of the uncommitted tracked changes (index + worktree) without touching
+    /// them (`git stash create`); nil when there is nothing to save.
+    public nonisolated func snapshotChanges() async throws -> String? {
+        let sha = try await git.runString(["stash", "create"], in: root).trimmingCharacters(in: .whitespacesAndNewlines)
+        return sha.isEmpty ? nil : sha
+    }
+
+    /// Re-applies a `snapshotChanges()` commit (index included where possible).
+    public func restoreSnapshot(_ sha: String) async throws {
+        do {
+            _ = try await git.run(["stash", "apply", "--index", sha], in: root)
+        } catch {
+            _ = try await git.run(["stash", "apply", sha], in: root)
+        }
+    }
+
+    /// Moves the current branch (or detached HEAD) to `sha`.
+    /// `keep` refuses to clobber local changes; `hard` discards them.
+    public enum MoveMode: String, Sendable { case soft, mixed, keep, hard }
+
+    public func moveHead(to sha: String, mode: MoveMode) async throws {
+        _ = try await git.run(["reset", "-q", "--\(mode.rawValue)", sha], in: root)
+    }
+
+    /// Re-creates a deleted branch at its old commit.
+    public func restoreBranch(_ name: String, at sha: String) async throws {
+        _ = try await git.run(["branch", name, sha], in: root)
+    }
+
+    /// Puts a dropped stash commit back on the stash list.
+    public func restoreStash(_ sha: String, message: String) async throws {
+        _ = try await git.run(["stash", "store", "-m", message, sha], in: root)
+    }
+
+    /// Reads untracked files (up to `limit` bytes in total) so a discard can be undone.
+    public nonisolated func readFiles(_ paths: [String], limit: Int = 20_000_000) -> [String: Data]? {
+        var out: [String: Data] = [:]
+        var total = 0
+        for p in paths {
+            guard let d = FileManager.default.contents(atPath: root.appendingPathComponent(p).path) else { continue }
+            total += d.count
+            if total > limit { return nil }
+            out[p] = d
+        }
+        return out
+    }
+
+    public nonisolated func writeFiles(_ files: [String: Data]) throws {
+        for (p, d) in files {
+            let url = root.appendingPathComponent(p)
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try d.write(to: url)
+        }
     }
 }
 

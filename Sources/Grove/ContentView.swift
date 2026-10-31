@@ -59,6 +59,7 @@ struct WelcomeView: View {
 
 struct RepoWindow: View {
     @State private var model: RepoModel
+    @Environment(\.undoManager) private var undoManager
 
     private var resetTitle: String {
         guard let r = model.pendingReset else { return "" }
@@ -203,6 +204,8 @@ struct RepoWindow: View {
             Text("Its commits are not reachable from its upstream or HEAD and will only be recoverable through the reflog.")
         }
         .task { await model.load() }
+        .onAppear { model.undoManager = undoManager }
+        .onChange(of: undoManager) { model.undoManager = undoManager }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await model.refreshRefsAndStatus() }
         }

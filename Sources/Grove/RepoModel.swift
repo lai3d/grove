@@ -198,6 +198,8 @@ final class RepoModel {
     private var logTask: Task<Void, Never>?
     private var logRequest = 0
     @ObservationIgnored private var watcher: RepositoryWatcher?
+    /// The window's undo manager (set by the view); git operations register their inverse here.
+    @ObservationIgnored weak var undoManager: UndoManager?
     private var detailTask: Task<Void, Never>?
     private var diffTask: Task<Void, Never>?
 
@@ -494,8 +496,11 @@ final class RepoModel {
         guard canCommit, let repo else { return }
         isCommitting = true
         defer { isCommitting = false }
+        let before = await repo.headID()
+        let title = amend ? "Amend" : "Commit"
         do {
             try await repo.commit(message: commitMessage, amend: amend, signOff: signOff)
+            if let before { registerUndo(title, .moveHead(before, .soft, snapshot: nil)) }
             draftBeforeAmend = ""
             commitMessage = ""
             amend = false
@@ -506,14 +511,18 @@ final class RepoModel {
         }
     }
 
-    private func write(_ op: (Repository) async throws -> Void) async {
-        guard let repo else { return }
+    @discardableResult
+    private func write(_ op: (Repository) async throws -> Void) async -> Bool {
+        guard let repo else { return false }
+        var ok = true
         do {
             try await op(repo)
         } catch {
             errorMessage = "\(error)"
+            ok = false
         }
         await refreshRefsAndStatus()
+        return ok
     }
 
     // MARK: Branches
@@ -524,11 +533,13 @@ final class RepoModel {
 
     func checkout(_ ref: Ref) async {
         guard !isCurrent(ref) else { return }
-        await perform { try await $0.checkout(ref) }
+        let before = await position()
+        if await perform({ try await $0.checkout(ref) }), let before { registerUndo("Checkout", .switchTo(before)) }
     }
 
     func checkoutDetached(_ commitID: String) async {
-        await perform { try await $0.checkoutDetached(commitID) }
+        let before = await position()
+        if await perform({ try await $0.checkoutDetached(commitID) }), let before { registerUndo("Checkout", .switchTo(before)) }
     }
 
     func validateBranchName(_ name: String) async -> String? {
@@ -541,11 +552,13 @@ final class RepoModel {
     /// Returns an error message to show in the sheet, nil on success.
     func createBranch(_ name: String, at startPoint: String, checkout: Bool) async -> String? {
         guard let repo else { return nil }
+        let before = await position()
         do {
             try await repo.createBranch(name, at: startPoint, checkout: checkout)
         } catch {
             return "\(error)"
         }
+        registerUndo("Create Branch", .deleteBranch(name, switchBackTo: checkout ? before : nil))
         await refresh()
         return nil
     }
@@ -566,6 +579,7 @@ final class RepoModel {
         guard let repo else { return }
         do {
             try await repo.deleteBranch(ref.name, force: force)
+            registerUndo("Delete Branch", .restoreBranch(ref.name, sha: ref.target))
             if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .history }
         } catch let e as GitError where e.isNotFullyMerged && !force {
             forceDelete = ref
@@ -586,16 +600,20 @@ final class RepoModel {
     }
 
     /// Runs a write that can move HEAD or refs, then refreshes everything.
-    private func perform(_ op: (Repository) async throws -> Void) async {
-        guard let repo, !isBusy else { return }
+    @discardableResult
+    private func perform(_ op: (Repository) async throws -> Void) async -> Bool {
+        guard let repo, !isBusy else { return false }
         isBusy = true
         defer { isBusy = false }
+        var ok = true
         do {
             try await op(repo)
         } catch {
             errorMessage = "\(error)"
+            ok = false
         }
         await refresh()
+        return ok
     }
 
     // MARK: Remote operations
@@ -607,7 +625,12 @@ final class RepoModel {
 
     func pull(_ mode: Repository.PullMode? = nil) {
         let m = mode ?? pullMode
-        runRemote("Pulling") { repo, progress in try await repo.pull(m, progress: progress) }
+        Task {
+            let before = await repo?.headID()
+            runRemote("Pulling", undo: before.map { ("Pull", .moveHead($0, .keep, snapshot: nil)) }) { repo, progress in
+                try await repo.pull(m, progress: progress)
+            }
+        }
     }
 
     func push(force: Bool = false) {
@@ -616,14 +639,17 @@ final class RepoModel {
 
     func cancelRemoteOperation() { remoteTask?.cancel() }
 
-    private func runRemote(_ title: String, _ op: @escaping @Sendable (Repository, @escaping @Sendable (String) -> Void) async throws -> Void) {
+    private func runRemote(_ title: String, undo: (String, UndoAction)? = nil,
+                           _ op: @escaping @Sendable (Repository, @escaping @Sendable (String) -> Void) async throws -> Void) {
         guard let repo, remoteOperation == nil else { return }
         remoteOperation = RemoteOperation(title: title)
         remoteTask = Task { [weak self] in
             do {
+                let before = await repo.headID()
                 try await op(repo) { line in
                     Task { @MainActor in self?.progressLine(line) }
                 }
+                if let undo, await repo.headID() != before { self?.registerUndo(undo.0, undo.1) }
             } catch is CancellationError {
             } catch {
                 self?.errorMessage = "\(error)"
@@ -672,15 +698,26 @@ final class RepoModel {
     // MARK: Hunks
 
     func applyHunk(_ action: Repository.HunkAction, hunk: Int, lines: Set<Int>?) async {
-        guard let diff = workingFileDiff else { return }
-        await write { try await $0.apply(action, hunk: hunk, lines: lines, in: diff) }
+        guard let diff = workingFileDiff, let repo else { return }
+        let snapshot = action == .discard ? try? await repo.snapshotChanges() : nil
+        let ok = await write { try await $0.apply(action, hunk: hunk, lines: lines, in: diff) }
+        if ok, let snapshot { registerUndo("Discard", .restoreChanges(snapshot: snapshot, untracked: [:])) }
         selectedLines = [:]
     }
 
     // MARK: Discard & stash
 
     func discard(_ entries: [ChangeEntry]) async {
-        await write { try await $0.discard(entries.map(\.change)) }
+        guard let repo else { return }
+        let snapshot = try? await repo.snapshotChanges()
+        let untracked = repo.readFiles(entries.filter { $0.change.kind == .untracked }.map(\.change.path))
+        if await write({ try await $0.discard(entries.map(\.change)) }) {
+            if let untracked {
+                registerUndo("Discard Changes", .restoreChanges(snapshot: snapshot, untracked: untracked))
+            } else {
+                undoManager?.removeAllActions(withTarget: self)  // too large to keep — no undo
+            }
+        }
     }
 
     func stashChanges(message: String, includeUntracked: Bool) async -> String? {
@@ -700,7 +737,9 @@ final class RepoModel {
     }
 
     func dropStash(_ stash: Stash) async {
-        await write { try await $0.dropStash(stash) }
+        if await write({ try await $0.dropStash(stash) }) {
+            registerUndo("Drop Stash", .restoreStash(sha: stash.id, message: stash.message))
+        }
         if selectedStash == nil, case .stash? = sidebarSelection { sidebarSelection = .history }
     }
 
@@ -732,17 +771,23 @@ final class RepoModel {
 
     // MARK: Commit operations
 
-    func cherryPick(_ commit: Commit) async { await performStepping { try await $0.cherryPick(commit) } }
+    func cherryPick(_ commit: Commit) async { await undoableStep("Cherry-Pick") { try await $0.cherryPick(commit) } }
 
-    func revert(_ commit: Commit) async { await performStepping { try await $0.revert(commit) } }
+    func revert(_ commit: Commit) async { await undoableStep("Revert") { try await $0.revert(commit) } }
+
+    /// A history-moving operation; undoable when it completes without pausing.
+    private func undoableStep(_ title: String, _ op: (Repository) async throws -> Void) async {
+        let before = await repo?.headID()
+        if await performStepping(op), let before { registerUndo(title, .moveHead(before, .keep, snapshot: nil)) }
+    }
 
     // MARK: Merge / rebase
 
     func merge(_ ref: String, noFastForward: Bool = false) async {
-        await performStepping { try await $0.merge(ref, noFastForward: noFastForward) }
+        await undoableStep("Merge") { try await $0.merge(ref, noFastForward: noFastForward) }
     }
 
-    func rebase(onto ref: String) async { await performStepping { try await $0.rebase(onto: ref) } }
+    func rebase(onto ref: String) async { await undoableStep("Rebase") { try await $0.rebase(onto: ref) } }
 
     func continueOperation() async {
         guard let op = operation else { return }
@@ -769,21 +814,35 @@ final class RepoModel {
 
     /// Like `perform`, but an operation that stops on conflicts is not an error:
     /// show the conflicts instead of an alert.
-    private func performStepping(_ op: (Repository) async throws -> Void) async {
-        guard let repo, !isBusy else { return }
+    /// Returns true only when the operation finished (not failed, not paused).
+    @discardableResult
+    private func performStepping(_ op: (Repository) async throws -> Void) async -> Bool {
+        guard let repo, !isBusy else { return false }
         isBusy = true
         defer { isBusy = false }
+        var ok = true
         do {
             try await op(repo)
         } catch {
+            ok = false
             if repo.operation() == nil { errorMessage = "\(error)" }
         }
         await refresh()
         if operation != nil, !conflictEntries.isEmpty { sidebarSelection = .workingCopy }
+        return ok && operation == nil
     }
 
     func reset(_ mode: Repository.ResetMode, to commit: Commit) async {
-        await perform { try await $0.reset(mode, to: commit.id) }
+        guard let repo, let before = await repo.headID() else { return }
+        let snapshot = mode == .hard ? try? await repo.snapshotChanges() : nil
+        let back: Repository.MoveMode = switch mode {
+        case .soft: .soft
+        case .mixed: .mixed
+        case .hard: .hard
+        }
+        if await perform({ try await $0.reset(mode, to: commit.id) }) {
+            registerUndo("Reset", .moveHead(before, back, snapshot: snapshot))
+        }
     }
 
     func validateTagName(_ name: String) async -> String? {
@@ -807,5 +866,71 @@ final class RepoModel {
     func deleteTag(_ ref: Ref) async {
         await perform { try await $0.deleteTag(ref.name) }
         if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .history }
+    }
+
+    // MARK: Undo
+
+    enum UndoAction {
+        case moveHead(String, Repository.MoveMode, snapshot: String?)
+        case switchTo(Position)
+        case deleteBranch(String, switchBackTo: Position?)
+        case restoreBranch(String, sha: String)
+        case restoreChanges(snapshot: String?, untracked: [String: Data])
+        case restoreStash(sha: String, message: String)
+    }
+
+    /// Where HEAD is: a branch, or a detached commit.
+    struct Position {
+        let branch: String?
+        let sha: String
+    }
+
+    private func position() async -> Position? {
+        guard let repo, let sha = await repo.headID() else { return nil }
+        return Position(branch: await repo.currentBranch(), sha: sha)
+    }
+
+    func registerUndo(_ title: String, _ action: UndoAction) {
+        guard let um = undoManager else { return }
+        um.registerUndo(withTarget: self) { model in
+            MainActor.assumeIsolated {
+                Task { await model.runUndo(action) }
+            }
+        }
+        um.setActionName(title)
+    }
+
+    private func runUndo(_ action: UndoAction) async {
+        switch action {
+        case .moveHead(let sha, let mode, let snapshot):
+            await perform { repo in
+                try await repo.moveHead(to: sha, mode: mode)
+                if let snapshot { try await repo.restoreSnapshot(snapshot) }
+            }
+        case .switchTo(let pos):
+            await perform { repo in try await self.switchTo(pos, in: repo) }
+        case .deleteBranch(let name, let back):
+            await perform { repo in
+                if let back { try await self.switchTo(back, in: repo) }
+                try await repo.deleteBranch(name, force: true)
+            }
+        case .restoreBranch(let name, let sha):
+            await perform { try await $0.restoreBranch(name, at: sha) }
+        case .restoreChanges(let snapshot, let untracked):
+            await write { repo in
+                if let snapshot { try await repo.restoreSnapshot(snapshot) }
+                try repo.writeFiles(untracked)
+            }
+        case .restoreStash(let sha, let message):
+            await write { try await $0.restoreStash(sha, message: message) }
+        }
+    }
+
+    private nonisolated func switchTo(_ pos: Position, in repo: Repository) async throws {
+        if let b = pos.branch {
+            try await repo.switchBranch(b)
+        } else {
+            try await repo.checkoutDetached(pos.sha)
+        }
     }
 }
