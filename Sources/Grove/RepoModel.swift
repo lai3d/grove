@@ -884,6 +884,20 @@ final class RepoModel {
 
     func revert(_ commit: Commit) async { await undoableStep("Revert") { try await $0.revert(commit) } }
 
+    // MARK: Several commits
+
+    func cherryPick(_ commits: [Commit]) async {
+        await undoableStep("Cherry-Pick \(commits.count) Commits") { try await $0.cherryPick(commits.reversed()) }
+    }
+
+    func revert(_ commits: [Commit]) async {
+        await undoableStep("Revert \(commits.count) Commits") { try await $0.revert(commits) }
+    }
+
+    func squash(_ commits: [Commit]) async {
+        await undoableStep("Squash \(commits.count) Commits") { try await $0.squash(commits) }
+    }
+
     /// A history-moving operation; undoable when it completes without pausing.
     private func undoableStep(_ title: String, _ op: (Repository) async throws -> Void) async {
         let before = await repo?.headID()

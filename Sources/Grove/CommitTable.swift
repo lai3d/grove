@@ -20,7 +20,7 @@ struct CommitTable: NSViewRepresentable {
         table.rowHeight = 24
         table.intercellSpacing = NSSize(width: 0, height: 0)  // graph lines must touch between rows
         table.usesAlternatingRowBackgroundColors = true
-        table.allowsMultipleSelection = false
+        table.allowsMultipleSelection = true
         table.allowsColumnReordering = false
         table.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
         table.gridStyleMask = []
@@ -65,7 +65,7 @@ struct CommitTable: NSViewRepresentable {
             table.noteNumberOfRowsChanged()
         }
         if let id = selectedID, let row = model.displayIndex(of: id), row < c.count {
-            if table.selectedRow != row {
+            if !table.selectedRowIndexes.contains(row) {
                 c.isSyncingSelection = true
                 table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
                 c.isSyncingSelection = false
@@ -137,6 +137,11 @@ struct CommitTable: NSViewRepresentable {
             menu.removeAllItems()
             guard let table, table.clickedRow >= 0, table.clickedRow < model.displayCount else { return }
             let commit = model.displayRow(table.clickedRow).commit
+            let selected = table.selectedRowIndexes
+            if selected.count > 1, selected.contains(table.clickedRow) {
+                multiMenu(menu, selected.map { model.displayRow($0).commit })
+                return
+            }
             func item(_ title: String, _ action: @escaping @MainActor () -> Void) {
                 let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
                 i.target = self
@@ -191,6 +196,28 @@ struct CommitTable: NSViewRepresentable {
             item("Copy Subject") { Self.copy(commit.subject) }
         }
 
+        /// Context menu for several selected commits (`commits` newest first).
+        private func multiMenu(_ menu: NSMenu, _ commits: [Commit]) {
+            let model = self.model
+            func item(_ title: String, _ action: @escaping @MainActor () -> Void) {
+                let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+                i.target = self
+                i.representedObject = MenuAction(action)
+                menu.addItem(i)
+            }
+            let n = commits.count
+            item(model.currentBranch.map { "Cherry-Pick \(n) Commits onto “\($0)”" } ?? "Cherry-Pick \(n) Commits") {
+                Task { await model.cherryPick(commits) }
+            }
+            item("Revert \(n) Commits") { Task { await model.revert(commits) } }
+            if model.currentBranch != nil, model.operation == nil {
+                item("Squash \(n) Commits into One") { Task { await model.squash(commits) } }
+            }
+            menu.addItem(.separator())
+            item("Copy \(n) SHAs") { Self.copy(commits.map(\.id).joined(separator: "\n")) }
+            item("Copy \(n) Subjects") { Self.copy(commits.map(\.subject).joined(separator: "\n")) }
+        }
+
         @objc private func runMenuAction(_ sender: NSMenuItem) {
             (sender.representedObject as? MenuAction)?.run()
         }
@@ -202,7 +229,7 @@ struct CommitTable: NSViewRepresentable {
 
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let table else { return }
-            let row = table.selectedRow
+            let row = table.selectedRow  // the row most recently added to the selection
             model.selectedCommitID = row >= 0 && row < model.displayCount ? model.displayRow(row).id : nil
         }
     }
