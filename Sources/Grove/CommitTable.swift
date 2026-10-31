@@ -171,6 +171,9 @@ struct CommitTable: NSViewRepresentable {
             reset.submenu = sub
             menu.addItem(reset)
             menu.addItem(.separator())
+            if let h = model.hosted {
+                item("Open Commit on \(h.host.rawValue)") { model.openWeb(h.commit(commit.id)) }
+            }
             item("Copy SHA") { Self.copy(commit.id) }
             item("Copy Subject") { Self.copy(commit.subject) }
         }

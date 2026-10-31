@@ -316,6 +316,9 @@ struct CommitDetailPane: View {
                             Button("Show History of “\((file.path as NSString).lastPathComponent)”") { model.showHistory(of: file.path) }
                             if file.letter != "D" {
                                 Button("Blame at This Commit") { model.blameTarget = BlameTarget(path: file.path, revision: d.commit.id) }
+                                if let h = model.hosted {
+                                    Button("Open on \(h.host.rawValue)") { model.openWeb(h.file(file.path, at: d.commit.id)) }
+                                }
                             }
                             Button("Copy Path") {
                                 NSPasteboard.general.clearContents()

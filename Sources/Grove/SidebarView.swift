@@ -261,6 +261,15 @@ struct RefMenu: View {
             Divider()
             Button("Delete Tag…") { model.pendingDeleteTag = ref }
         }
+        if let h = model.hosted, let remoteBranch = model.hostedBranch(for: ref) {
+            Divider()
+            Button("Open on \(h.host.rawValue)") { model.openWeb(h.branch(remoteBranch)) }
+            Button("Create \(h.host == .gitlab ? "Merge" : "Pull") Request") { model.openWeb(h.newPullRequest(from: remoteBranch)) }
+            Button("Show \(h.host == .gitlab ? "Merge" : "Pull") Requests") { model.openWeb(h.pullRequests(for: remoteBranch)) }
+        } else if let h = model.hosted, ref.kind == .tag {
+            Divider()
+            Button("Open on \(h.host.rawValue)") { model.openWeb(h.branch(ref.name)) }
+        }
         Divider()
         Button("Copy Name") {
             NSPasteboard.general.clearContents()

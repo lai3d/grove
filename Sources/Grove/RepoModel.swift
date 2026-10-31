@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GroveCore
 import Observation
@@ -130,6 +131,8 @@ final class RepoModel {
     var pendingRemoveWorktree: Worktree?
     /// Set to ask the window to open another repository window.
     var openRequest: URL?
+    /// GitHub / GitLab / Bitbucket web URLs for the main remote.
+    private(set) var hosted: HostedRepo?
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 
@@ -270,8 +273,11 @@ final class RepoModel {
         if let repo {
             async let w = repo.worktrees()
             async let m = repo.submodules()
+            let upstreamRemote = currentRef?.upstream?.split(separator: "/").first.map(String.init)
+            async let h = repo.hostedRepo(preferring: upstreamRemote)
             worktrees = (try? await w) ?? []
             submodules = (try? await m) ?? []
+            hosted = await h
         }
     }
 
@@ -1071,5 +1077,24 @@ final class RepoModel {
     func dismissOptimizeHint() {
         suggestOptimize = false
         if let repo { UserDefaults.standard.set(true, forKey: "noOptimizeHint:" + repo.root.path) }
+    }
+
+    // MARK: Hosting
+
+    func openWeb(_ url: URL) { NSWorkspace.shared.open(url) }
+
+    /// Branch name on the hosting remote: the upstream's branch for a local branch, or the remote branch itself.
+    func hostedBranch(for ref: Ref) -> String? {
+        guard let hosted else { return nil }
+        let prefix = hosted.remote + "/"
+        switch ref.kind {
+        case .branch:
+            guard let up = ref.upstream, up.hasPrefix(prefix) else { return nil }
+            return String(up.dropFirst(prefix.count))
+        case .remote:
+            return ref.name.hasPrefix(prefix) ? String(ref.name.dropFirst(prefix.count)) : nil
+        case .tag:
+            return nil
+        }
     }
 }

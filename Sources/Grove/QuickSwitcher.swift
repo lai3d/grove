@@ -230,6 +230,14 @@ struct QuickSwitcher: View {
         }
         add("Show Activity", "list.bullet.rectangle", "⌥⌘L") { m.showActivity = true }
         add("Refresh", "arrow.clockwise", "⌘R") { Task { await m.refresh() } }
+        if let h = m.hosted {
+            add("Open Repository on \(h.host.rawValue)", "safari") { m.openWeb(h.web) }
+            if let ref = m.currentRef, let b = m.hostedBranch(for: ref) {
+                add("Create \(h.host == .gitlab ? "Merge" : "Pull") Request for “\(ref.name)”", "arrow.triangle.pull") {
+                    m.openWeb(h.newPullRequest(from: b))
+                }
+            }
+        }
         add("Copy HEAD SHA", "doc.on.doc") {
             Task {
                 if let id = await m.repo?.headID() {
