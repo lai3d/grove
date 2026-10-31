@@ -20,9 +20,10 @@ struct GroveApp: App {
 
     var body: some Scene {
         // One window per repository; a window without a value shows the welcome screen.
-        WindowGroup("Grove", for: URL.self) { $url in
+        WindowGroup("Grove", id: "repository", for: URL.self) { $url in
             RootView(url: $url)
                 .frame(minWidth: 1000, minHeight: 640)
+                .background(WindowTabbing())
         }
         .windowToolbarStyle(.unified)
         .commands { GroveCommands() }
@@ -37,6 +38,8 @@ struct GroveCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
+            Button("New Tab") { openWindow(id: "repository") }
+                .keyboardShortcut("t")
             Button("Open Repository…") {
                 if let url = RepositoryPicker.choose() { openWindow(value: url) }
             }
@@ -131,8 +134,11 @@ enum RepositoryPicker {
 enum RecentRepositories {
     private static let key = "recentRepositories"
 
+    /// Recent repositories that still exist on disk.
     static func all() -> [URL] {
-        (UserDefaults.standard.stringArray(forKey: key) ?? []).map { URL(fileURLWithPath: $0) }
+        (UserDefaults.standard.stringArray(forKey: key) ?? [])
+            .filter { FileManager.default.fileExists(atPath: $0) }
+            .map { URL(fileURLWithPath: $0) }
     }
 
     static func add(_ url: URL) {

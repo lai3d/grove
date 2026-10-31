@@ -17,6 +17,7 @@ private struct GeneralSettings: View {
     @AppStorage(Git.pathDefaultsKey) private var gitPath = ""
     @AppStorage("pullMode") private var pullMode = Repository.PullMode.fastForwardOnly.rawValue
     @AppStorage("signOff") private var signOff = false
+    @AppStorage("openInTabs") private var openInTabs = true
     @State private var version: String?
 
     var body: some View {
@@ -46,6 +47,7 @@ private struct GeneralSettings: View {
                     Text("Merge").tag(Repository.PullMode.merge.rawValue)
                 }
                 Toggle("Add Signed-off-by to new commits", isOn: $signOff)
+                Toggle("Open repositories as tabs in one window", isOn: $openInTabs)
             }
         }
         .formStyle(.grouped)
