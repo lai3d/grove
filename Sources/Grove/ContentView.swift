@@ -85,7 +85,8 @@ struct RepoWindow: View {
         _model = State(initialValue: RepoModel(url: url))
     }
 
-    var body: some View {
+    // Split in three so Swift 6.2 (CI) can type-check the modifier chain in time.
+    private var chrome: some View {
         NavigationSplitView {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 230, max: 360)
@@ -152,6 +153,10 @@ struct RepoWindow: View {
                 .help("Refresh (⌘R)")
             }
         }
+    }
+
+    private var withSheets: some View {
+        chrome
         .sheet(item: $model.branchSheet) { BranchNameSheet(model: model, sheet: $0) }
         .sheet(item: $model.credentialPrompt) { CredentialSheet(prompt: $0) }
         .sheet(isPresented: $model.showStashSheet) { StashSheet(model: model) }
@@ -165,6 +170,10 @@ struct RepoWindow: View {
                 model.openRequest = nil
             }
         }
+    }
+
+    var body: some View {
+        withSheets
         .confirmationDialog("Remove worktree “\(model.pendingRemoveWorktree.map { ($0.path as NSString).lastPathComponent } ?? "")”?",
                             isPresented: Binding(get: { model.pendingRemoveWorktree != nil }, set: { if !$0 { model.pendingRemoveWorktree = nil } })) {
             if let w = model.pendingRemoveWorktree {
