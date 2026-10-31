@@ -183,6 +183,46 @@ public actor Repository {
     public func deleteBranch(_ name: String, force: Bool) async throws {
         _ = try await git.run(["branch", force ? "-D" : "-d", name], in: root)
     }
+
+    // MARK: Remotes
+
+    public nonisolated func remotes() async throws -> [String] {
+        try await git.runString(["remote"], in: root).split(separator: "\n").map(String.init)
+    }
+
+    public func fetch(progress: @escaping @Sendable (String) -> Void) async throws {
+        _ = try await git.runWithProgress(["fetch", "--all", "--prune", "--progress"], in: root, progress: progress)
+    }
+
+    public enum PullMode: String, Sendable, CaseIterable { case fastForwardOnly, rebase, merge }
+
+    public func pull(_ mode: PullMode, progress: @escaping @Sendable (String) -> Void) async throws {
+        let flag = switch mode {
+        case .fastForwardOnly: "--ff-only"
+        case .rebase: "--rebase"
+        case .merge: "--no-rebase"
+        }
+        _ = try await git.runWithProgress(["pull", flag, "--progress"], in: root, progress: progress)
+    }
+
+    /// Pushes the current branch; without an upstream it is published to `remote`
+    /// (default: the only remote, else "origin") and tracking is set up.
+    public func push(force: Bool = false, remote: String? = nil, progress: @escaping @Sendable (String) -> Void) async throws {
+        guard let branch = await currentBranch() else {
+            throw GitError(arguments: ["push"], exitCode: 1, stderr: "HEAD is detached — check out a branch to push")
+        }
+        var args = ["push", "--progress"]
+        if force { args.append("--force-with-lease") }
+        let upstream = try? await git.runString(["rev-parse", "--abbrev-ref", "\(branch)@{upstream}"], in: root)
+        if upstream?.isEmpty ?? true {
+            let all = try await remotes()
+            guard let target = remote ?? (all.count == 1 ? all[0] : all.first { $0 == "origin" }) else {
+                throw GitError(arguments: ["push"], exitCode: 1, stderr: "No remote to push to")
+            }
+            args += ["-u", target, branch]
+        }
+        _ = try await git.runWithProgress(args, in: root, progress: progress)
+    }
 }
 
 extension GitError {

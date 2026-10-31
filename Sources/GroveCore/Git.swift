@@ -14,11 +14,54 @@ public struct GitError: Error, CustomStringConvertible, Sendable {
 /// Thin runner around the `git` executable. All repository writes go through the
 /// real CLI so hooks, credential helpers, signing and user config behave exactly
 /// as they do in the terminal.
+/// One git invocation, reported to `Git.observer` when it starts and when it ends.
+public struct GitEvent: Sendable, Identifiable {
+    public enum Phase: Sendable {
+        case started
+        case finished(exitCode: Int32, duration: TimeInterval, output: String)
+        case failedToLaunch(String)
+    }
+    public let id: UUID
+    public let arguments: [String]
+    public let phase: Phase
+
+    static let readOnlyCommands: Set<String> = [
+        "status", "log", "rev-parse", "for-each-ref", "show", "diff", "diff-tree", "hash-object",
+        "symbolic-ref", "check-ref-format", "cat-file", "ls-files", "rev-list", "blame", "merge-base",
+    ]
+
+    /// Queries that don't change anything (hidden from the activity log).
+    public var isReadOnly: Bool {
+        // Skip global `-c key=value` options.
+        var args = arguments[...]
+        while args.first == "-c" { args = args.dropFirst(2) }
+        guard let cmd = args.first else { return true }
+        let sub = args.dropFirst().first
+        switch cmd {
+        case "remote": return sub == nil || sub == "-v" || sub == "get-url" || sub == "show"
+        case "stash": return sub == "list" || sub == "show"
+        case "reflog": return sub == nil || sub == "show"
+        case "branch", "tag": return sub == nil || sub == "--list" || sub == "-l"
+        case "config":
+            // `config key` / `config --get…` / `config --list` read; `config key value` writes.
+            return args.contains { ["--get", "--get-all", "--get-regexp", "--list", "-l"].contains($0) } || args.count == 2
+        default: return Self.readOnlyCommands.contains(cmd)
+        }
+    }
+}
+
 public struct Git: Sendable {
     public let executable: URL
+    /// Called (on a background queue) for every git process Grove runs.
+    public var observer: (@Sendable (GitEvent) -> Void)?
 
-    public init(executable: URL = Git.defaultExecutable()) {
+    public init(executable: URL = Git.defaultExecutable(), observer: (@Sendable (GitEvent) -> Void)? = nil) {
         self.executable = executable
+        self.observer = observer
+    }
+
+    private func report(_ id: UUID, _ args: [String], _ phase: GitEvent.Phase) {
+        observer?(GitEvent(id: id, arguments: args, phase: phase))
     }
 
     public static func defaultExecutable() -> URL {
@@ -78,7 +121,12 @@ public struct Git: Sendable {
 
     private func runSync(_ args: [String], in dir: URL, input: Data?, okExitCodes: Set<Int32>) throws -> Data {
         let box = makeProcess(args, in: dir)
-        try box.process.run()
+        let id = UUID(), start = Date()
+        report(id, args, .started)
+        do { try box.process.run() } catch {
+            report(id, args, .failedToLaunch("\(error)"))
+            throw error
+        }
         let group = DispatchGroup()
         let errData = DataBox()
         group.enter()
@@ -97,10 +145,79 @@ public struct Git: Sendable {
         group.wait()
         box.process.waitUntilExit()
         let status = box.process.terminationStatus
+        let stderr = String(decoding: errData.data, as: UTF8.self)
+        report(id, args, .finished(exitCode: status, duration: Date().timeIntervalSince(start), output: stderr))
         guard okExitCodes.contains(status) else {
-            throw GitError(arguments: args, exitCode: status, stderr: String(decoding: errData.data, as: UTF8.self))
+            throw GitError(arguments: args, exitCode: status, stderr: stderr)
         }
         return data
+    }
+
+    /// Runs a long operation (fetch / push / pull…), streaming each stderr progress
+    /// line (git separates updates with \r) to `progress`. Cancelling the calling
+    /// task terminates git and throws `CancellationError`. Returns git's stderr+stdout text.
+    public func runWithProgress(_ args: [String], in dir: URL,
+                                progress: @escaping @Sendable (String) -> Void) async throws -> String {
+        let box = makeProcess(args, in: dir)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<String, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let id = UUID(), start = Date()
+                    report(id, args, .started)
+                    do { try box.launchUnlessCancelled() } catch {
+                        report(id, args, .failedToLaunch("\(error)"))
+                        cont.resume(throwing: error)
+                        return
+                    }
+                    try? box.input.fileHandleForWriting.close()
+                    let group = DispatchGroup()
+                    let out = DataBox()
+                    group.enter()
+                    DispatchQueue.global().async {
+                        out.data = box.out.fileHandleForReading.readDataToEndOfFile()
+                        group.leave()
+                    }
+                    var all = Data()
+                    var line = Data()
+                    let h = box.err.fileHandleForReading
+                    while true {
+                        let chunk = h.availableData
+                        if chunk.isEmpty { break }
+                        all.append(chunk)
+                        for b in chunk {
+                            if b == 13 || b == 10 {
+                                if !line.isEmpty { progress(String(decoding: line, as: UTF8.self)); line.removeAll() }
+                            } else {
+                                line.append(b)
+                            }
+                        }
+                    }
+                    if !line.isEmpty { progress(String(decoding: line, as: UTF8.self)) }
+                    group.wait()
+                    box.process.waitUntilExit()
+                    let status = box.process.terminationStatus
+                    // Keep only the final state of \r-updated progress lines.
+                    let text = Self.collapseProgress(String(decoding: all, as: UTF8.self))
+                        + String(decoding: out.data, as: UTF8.self)
+                    report(id, args, .finished(exitCode: status, duration: Date().timeIntervalSince(start), output: text))
+                    if box.isCancelled {
+                        cont.resume(throwing: CancellationError())
+                    } else if status != 0 {
+                        cont.resume(throwing: GitError(arguments: args, exitCode: status, stderr: text))
+                    } else {
+                        cont.resume(returning: text)
+                    }
+                }
+            }
+        } onCancel: {
+            box.cancel()
+        }
+    }
+
+    static func collapseProgress(_ s: String) -> String {
+        s.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { $0.split(separator: "\r").last.map(String.init) ?? "" }
+            .joined(separator: "\n")
     }
 
     /// Streams stdout split on `separator` (NUL by default, for `-z` output).
@@ -112,7 +229,13 @@ public struct Git: Sendable {
                 if case .cancelled = reason, box.process.isRunning { box.process.terminate() }
             }
             DispatchQueue.global(qos: .userInitiated).async {
-                do { try box.process.run() } catch { cont.finish(throwing: error); return }
+                let id = UUID(), start = Date()
+                report(id, args, .started)
+                do { try box.process.run() } catch {
+                    report(id, args, .failedToLaunch("\(error)"))
+                    cont.finish(throwing: error)
+                    return
+                }
                 try? box.input.fileHandleForWriting.close()
                 let group = DispatchGroup()
                 let errData = DataBox()
@@ -138,6 +261,8 @@ public struct Git: Sendable {
                 group.wait()
                 box.process.waitUntilExit()
                 let p = box.process
+                report(id, args, .finished(exitCode: p.terminationStatus, duration: Date().timeIntervalSince(start),
+                                           output: String(decoding: errData.data, as: UTF8.self)))
                 if p.terminationStatus == 0 || p.terminationReason == .uncaughtSignal {
                     cont.finish()
                 } else {
@@ -154,7 +279,26 @@ private final class ProcessBox: @unchecked Sendable {
     let out = Pipe()
     let err = Pipe()
     let input = Pipe()
+    private let lock = NSLock()
+    private var cancelled = false
+
     init(process: Process) { self.process = process }
+
+    var isCancelled: Bool { lock.withLock { cancelled } }
+
+    func launchUnlessCancelled() throws {
+        try lock.withLock {
+            if cancelled { throw CancellationError() }
+            try process.run()
+        }
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+            if process.isRunning { process.terminate() }
+        }
+    }
 }
 
 private final class DataBox: @unchecked Sendable {

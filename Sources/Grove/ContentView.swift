@@ -77,7 +77,12 @@ struct RepoWindow: View {
         }
         .navigationTitle(model.title)
         .navigationSubtitle(model.currentBranch ?? (model.repo == nil ? "" : "detached HEAD"))
+        .inspector(isPresented: $model.showActivity) {
+            ActivityView(model: model)
+                .inspectorColumnWidth(min: 260, ideal: 340, max: 600)
+        }
         .toolbar {
+            RemoteToolbar(model: model)
             ToolbarItem {
                 if model.isLoadingLog {
                     ProgressView().controlSize(.small)
@@ -88,6 +93,12 @@ struct RepoWindow: View {
                     Label("New Branch", systemImage: "arrow.triangle.branch")
                 }
                 .help("New Branch (⇧⌘N)")
+            }
+            ToolbarItem {
+                Button { model.showActivity.toggle() } label: {
+                    Label("Activity", systemImage: "list.bullet.rectangle")
+                }
+                .help("Show git commands run by Grove (⌥⌘L)")
             }
             ToolbarItem {
                 Button { Task { await model.refresh() } } label: {

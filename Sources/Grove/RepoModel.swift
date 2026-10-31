@@ -20,6 +20,26 @@ enum BranchSheet: Identifiable {
     }
 }
 
+struct ActivityEntry: Identifiable {
+    let id: UUID
+    let arguments: [String]
+    let start: Date
+    var exitCode: Int32?
+    var duration: TimeInterval?
+    var output = ""
+    var launchError: String?
+
+    var command: String { "git " + arguments.joined(separator: " ") }
+    var isRunning: Bool { exitCode == nil && launchError == nil }
+    var succeeded: Bool { exitCode == 0 }
+}
+
+struct RemoteOperation {
+    let title: String
+    var phase = ""
+    var fraction: Double?
+}
+
 struct CommitDetail {
     let commit: Commit
     let message: String
@@ -88,6 +108,16 @@ final class RepoModel {
     var expandedGroups: Set<String> = []
     private(set) var isBusy = false
 
+    // Remote operations & activity
+    private(set) var remoteOperation: RemoteOperation?
+    private var remoteTask: Task<Void, Never>?
+    private(set) var activity: [ActivityEntry] = []
+    var showActivity = false
+    var pullMode: Repository.PullMode = Repository.PullMode(rawValue: UserDefaults.standard.string(forKey: "pullMode") ?? "")
+        ?? .fastForwardOnly {
+        didSet { UserDefaults.standard.set(pullMode.rawValue, forKey: "pullMode") }
+    }
+
     private var logTask: Task<Void, Never>?
     private var logRequest = 0
     @ObservationIgnored private var watcher: RepositoryWatcher?
@@ -105,7 +135,10 @@ final class RepoModel {
     func load() async {
         guard repo == nil else { return }
         do {
-            let r = try await Repository.open(url)
+            let git = Git(observer: { [weak self] event in
+                Task { @MainActor in self?.record(event) }
+            })
+            let r = try await Repository.open(url, git: git)
             repo = r
             RecentRepositories.add(r.root)
             watcher = r.watch { [weak self] change in
@@ -392,4 +425,75 @@ final class RepoModel {
         }
         await refresh()
     }
+
+    // MARK: Remote operations
+
+    var currentRef: Ref? { refs.first { $0.kind == .branch && $0.name == currentBranch } }
+    var hasRemotes: Bool { refs.contains { $0.kind == .remote } }
+
+    func fetch() { runRemote("Fetching") { repo, progress in try await repo.fetch(progress: progress) } }
+
+    func pull(_ mode: Repository.PullMode? = nil) {
+        let m = mode ?? pullMode
+        runRemote("Pulling") { repo, progress in try await repo.pull(m, progress: progress) }
+    }
+
+    func push(force: Bool = false) {
+        runRemote(force ? "Force pushing" : "Pushing") { repo, progress in try await repo.push(force: force, progress: progress) }
+    }
+
+    func cancelRemoteOperation() { remoteTask?.cancel() }
+
+    private func runRemote(_ title: String, _ op: @escaping @Sendable (Repository, @escaping @Sendable (String) -> Void) async throws -> Void) {
+        guard let repo, remoteOperation == nil else { return }
+        remoteOperation = RemoteOperation(title: title)
+        remoteTask = Task { [weak self] in
+            do {
+                try await op(repo) { line in
+                    Task { @MainActor in self?.progressLine(line) }
+                }
+            } catch is CancellationError {
+            } catch {
+                self?.errorMessage = "\(error)"
+            }
+            self?.remoteOperation = nil
+            self?.remoteTask = nil
+            await self?.refresh()
+        }
+    }
+
+    private func progressLine(_ line: String) {
+        guard remoteOperation != nil else { return }
+        // "Receiving objects:  45% (450/1000), 1.2 MiB | 3 MiB/s"
+        if let colon = line.firstIndex(of: ":"), let pct = line.range(of: #"\d{1,3}%"#, options: .regularExpression) {
+            remoteOperation?.phase = String(line[..<colon]).replacingOccurrences(of: "remote", with: "").trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))
+            remoteOperation?.fraction = Double(line[pct].dropLast()).map { $0 / 100 }
+        } else if !line.hasPrefix(" ") && line.count < 80 {
+            remoteOperation?.phase = line
+        }
+    }
+
+    // MARK: Activity log
+
+    private func record(_ event: GitEvent) {
+        guard !event.isReadOnly else { return }
+        let i = activity.lastIndex { $0.id == event.id }
+        switch event.phase {
+        case .started:
+            if i == nil { activity.append(ActivityEntry(id: event.id, arguments: event.arguments, start: Date())) }
+        case .finished(let code, let duration, let output):
+            var e = i.map { activity[$0] } ?? ActivityEntry(id: event.id, arguments: event.arguments, start: Date())
+            e.exitCode = code
+            e.duration = duration
+            e.output = output.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let i { activity[i] = e } else { activity.append(e) }
+        case .failedToLaunch(let message):
+            var e = i.map { activity[$0] } ?? ActivityEntry(id: event.id, arguments: event.arguments, start: Date())
+            e.launchError = message
+            if let i { activity[i] = e } else { activity.append(e) }
+        }
+        if activity.count > 500 { activity.removeFirst(activity.count - 500) }
+    }
+
+    func clearActivity() { activity.removeAll { !$0.isRunning } }
 }

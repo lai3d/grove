@@ -48,6 +48,19 @@ struct GroveCommands: Commands {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(model == nil)
             Divider()
+            Button("Fetch") { model?.fetch() }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
+                .disabled(model == nil || model?.remoteOperation != nil)
+            Button("Pull") { model?.pull() }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+                .disabled(model == nil || model?.remoteOperation != nil)
+            Button("Push") { model?.push() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+                .disabled(model == nil || model?.remoteOperation != nil)
+            Button("Show Activity") { model?.showActivity.toggle() }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+                .disabled(model == nil)
+            Divider()
             Button("Working Copy") { model?.sidebarSelection = .workingCopy }
                 .keyboardShortcut("1")
                 .disabled(model == nil)
