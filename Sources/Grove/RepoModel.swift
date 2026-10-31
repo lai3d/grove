@@ -235,11 +235,13 @@ final class RepoModel {
         do {
             let helper = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("grove-askpass")
             let askpass = AskpassServer.shared.register(helper: helper) { [weak self] request in
-                await withCheckedContinuation { cont in
+                // Immutable copy: Swift 6.2 rejects sending the weak `self` var into the Task.
+                let model = self
+                return await withCheckedContinuation { cont in
                     Task { @MainActor in
-                        guard let self else { return cont.resume(returning: nil) }
-                        self.credentialPrompt?.respond(nil)
-                        self.credentialPrompt = CredentialPrompt(request: request) { cont.resume(returning: $0) }
+                        guard let model else { return cont.resume(returning: nil) }
+                        model.credentialPrompt?.respond(nil)
+                        model.credentialPrompt = CredentialPrompt(request: request) { cont.resume(returning: $0) }
                     }
                 }
             }
@@ -924,7 +926,7 @@ final class RepoModel {
         guard let um = undoManager else { return }
         um.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated {
-                Task { await model.runUndo(action) }
+                _ = Task<Void, Never> { await model.runUndo(action) }
             }
         }
         um.setActionName(title)
