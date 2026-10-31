@@ -6,9 +6,13 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGPIPE, SIG_IGN)
-        // Needed when launched as a bare SwiftPM executable (no .app bundle).
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // Only for a bare SwiftPM executable (`swift run`, no .app bundle). In a bundle this is
+        // unnecessary, and with the macOS 26 SDK it has been seen to stop SwiftUI from opening
+        // the first window (reported on sibling apps; not reproduced for Grove on macOS 27.2).
+        if Bundle.main.bundleIdentifier == nil {
+            NSApp.setActivationPolicy(.regular)
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
