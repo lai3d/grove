@@ -556,6 +556,82 @@ public actor Repository {
     public nonisolated func workingFile(_ path: String) -> Data? {
         FileManager.default.contents(atPath: root.appendingPathComponent(path).path)
     }
+
+    // MARK: Interactive rebase
+
+    /// Commits after `base` up to HEAD, oldest first, with full messages.
+    /// Throws if the range contains merges (not supported by the simple planner).
+    public nonisolated func rebaseCandidates(after base: String) async throws -> [RebaseStep] {
+        let range = "\(base)..HEAD"
+        let merges = try await git.runString(["rev-list", "--merges", range], in: root)
+        if !merges.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw GitError(arguments: ["rebase"], exitCode: 1, stderr: "The range contains merge commits — interactive rebase of merges isn't supported")
+        }
+        var steps: [RebaseStep] = []
+        for try await record in git.records(["log", "-z", "--reverse", "--topo-order", "--decorate=full", GitParse.logFormat, range], in: root) {
+            guard let c = GitParse.commit(record) else { continue }
+            steps.append(RebaseStep(commit: c, originalMessage: try await message(of: c.id)))
+        }
+        return steps
+    }
+
+    /// The default message of a squash group: the head's message followed by squashed ones.
+    public static func squashMessage(_ group: [RebaseStep]) -> String {
+        group.filter { $0.action != .fixup }
+            .map { ($0.message ?? $0.originalMessage).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .joined(separator: "\n\n")
+    }
+
+    /// Builds the todo list. reword / squash become pick / fixup plus an `exec git commit --amend -F`
+    /// so no editor ever opens. `messageFile` writes a message and returns its path.
+    static func todo(for steps: [RebaseStep], messageFile: (String) throws -> String) throws -> [String] {
+        var lines: [String] = []
+        var i = 0
+        let kept = steps.filter { $0.action != .drop }
+        guard let first = kept.first else { return ["noop"] }
+        if first.action == .squash || first.action == .fixup {
+            throw GitError(arguments: ["rebase"], exitCode: 1, stderr: "The first commit can't be squashed or fixed up — there's nothing before it to combine with")
+        }
+        while i < kept.count {
+            let head = kept[i]
+            var group = [head]
+            i += 1
+            while i < kept.count, kept[i].action == .squash || kept[i].action == .fixup {
+                group.append(kept[i])
+                i += 1
+            }
+            lines.append("pick \(head.commit.id)")
+            for f in group.dropFirst() { lines.append("fixup \(f.commit.id)") }
+            let squashes = group.contains { $0.action == .squash }
+            if head.action == .reword || squashes {
+                let msg = head.message ?? (squashes ? squashMessage(group) : head.originalMessage)
+                let path = try messageFile(msg)
+                lines.append("exec git commit --amend --allow-empty -q -F '\(path.replacingOccurrences(of: "'", with: "'\\''"))'")
+            }
+        }
+        return lines
+    }
+
+    /// Rewrites the commits after `base` according to `steps` (in their new order, oldest first).
+    /// Pauses like a normal rebase on conflicts (see `operation()`).
+    public func interactiveRebase(onto base: String, steps: [RebaseStep]) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("grove-rebase-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var n = 0
+        let lines = try Self.todo(for: steps) { msg in
+            n += 1
+            let url = dir.appendingPathComponent("msg\(n).txt")
+            try msg.write(to: url, atomically: true, encoding: .utf8)
+            return url.path
+        }
+        let todo = dir.appendingPathComponent("todo")
+        try (lines.joined(separator: "\n") + "\n").write(to: todo, atomically: true, encoding: .utf8)
+        var g = git
+        g.environment["GIT_SEQUENCE_EDITOR"] = "cp '\(todo.path)'"
+        g.environment["GIT_EDITOR"] = "true"
+        let hasParent = (try? await git.run(["rev-parse", "-q", "--verify", "\(base)^{commit}"], in: root)) != nil
+        _ = try await g.run(["rebase", "-i", "--no-autosquash"] + (hasParent ? [base] : ["--root"]), in: root)
+    }
 }
 
 extension GitError {

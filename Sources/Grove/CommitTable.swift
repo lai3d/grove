@@ -155,6 +155,7 @@ struct CommitTable: NSViewRepresentable {
             if let branch, model.operation == nil {
                 item("Merge into “\(branch)”") { Task { await model.merge(commit.id) } }
                 item("Rebase “\(branch)” onto Here") { Task { await model.rebase(onto: commit.id) } }
+                item("Interactive Rebase of Later Commits…") { model.rebaseBase = commit }
             }
             let reset = NSMenuItem(title: branch.map { "Reset “\($0)” to Here" } ?? "Reset HEAD to Here", action: nil, keyEquivalent: "")
             let sub = NSMenu()

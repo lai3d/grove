@@ -156,6 +156,7 @@ struct RepoWindow: View {
         .sheet(isPresented: $model.showStashSheet) { StashSheet(model: model) }
         .sheet(item: $model.tagSheet) { TagSheet(model: model, commit: $0) }
         .sheet(item: $model.blameTarget) { BlameView(model: model, target: $0) }
+        .sheet(item: $model.rebaseBase) { InteractiveRebaseSheet(model: model, base: $0) }
         .confirmationDialog(resetTitle,
                             isPresented: Binding(get: { model.pendingReset != nil }, set: { if !$0 { model.pendingReset = nil } })) {
             if let r = model.pendingReset {

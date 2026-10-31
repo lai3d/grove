@@ -117,6 +117,7 @@ final class RepoModel {
     var focusFilterToken = 0
     var showPalette = false
     var blameTarget: BlameTarget?
+    var rebaseBase: Commit?
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 
@@ -797,6 +798,10 @@ final class RepoModel {
     }
 
     func rebase(onto ref: String) async { await undoableStep("Rebase") { try await $0.rebase(onto: ref) } }
+
+    func interactiveRebase(onto base: Commit, steps: [RebaseStep]) async {
+        await undoableStep("Interactive Rebase") { try await $0.interactiveRebase(onto: base.id, steps: steps) }
+    }
 
     func continueOperation() async {
         guard let op = operation else { return }

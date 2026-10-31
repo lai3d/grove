@@ -109,3 +109,23 @@ public enum RepoOperation: Sendable, Hashable {
         }
     }
 }
+
+/// One line of an interactive rebase plan.
+public struct RebaseStep: Sendable, Hashable, Identifiable {
+    public enum Action: String, Sendable, CaseIterable { case pick, reword, squash, fixup, drop }
+    public var action: Action
+    public let commit: Commit
+    /// Full original message.
+    public let originalMessage: String
+    /// Final message for a reword, or for the head of a squash group (nil = default).
+    public var message: String?
+
+    public var id: String { commit.id }
+
+    public init(action: Action = .pick, commit: Commit, originalMessage: String, message: String? = nil) {
+        self.action = action
+        self.commit = commit
+        self.originalMessage = originalMessage
+        self.message = message
+    }
+}
