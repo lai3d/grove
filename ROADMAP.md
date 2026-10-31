@@ -62,3 +62,15 @@ Estimates are Claude Code session time.
 | 4.8 | ✅ Split-view staging | Stage / unstage / discard hunks and lines from the side-by-side working-copy diff too | 0.5h |
 | 4.9 | ✅ Merge editor | Conflicted text files: per-conflict "ours / theirs / both" choices with live preview, then mark resolved | 1h |
 
+
+## Phase 5 — Workflow
+
+| # | Item | Notes | Est. |
+|---|---|---|---|
+| 5.1 | ⬜ Bisect | Start from a bad / good commit (context menu), mark Good / Bad / Skip from a banner with steps left, culprit shown when found, Reset | 0.5h |
+| 5.2 | ⬜ Multi-select commits | ⌘/⇧-click several commits: cherry-pick or revert them in order, copy SHAs, squash a contiguous range | 0.5h |
+| 5.3 | ⬜ Check out a pull request | By number: fetches `pull/N/head` (GitHub) / `merge-requests/N/head` (GitLab) into `pr/N` and switches to it | 0.3h |
+| 5.4 | ⬜ Commit message help | Honors `commit.template`, recent-messages menu, subject length guide (50 / 72) | 0.3h |
+| 5.5 | ⬜ Repository overview | Welcome window lists recents with branch, dirty count and ahead / behind, refreshed in the background | 0.4h |
+| 5.6 | ⬜ Stash selected files | Stash only the selected working-copy files; keep-index and include-untracked options | 0.3h |
+| 5.7 | ⬜ Patches | Copy / save a commit (or several) as a patch (`format-patch`), apply a patch file (`git am` / `git apply`) | 0.4h |
