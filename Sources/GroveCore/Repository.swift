@@ -488,6 +488,63 @@ public actor Repository {
             try d.write(to: url)
         }
     }
+
+    // MARK: Blame
+
+    /// Blame of `path` at `revision` (nil = the working tree, uncommitted lines get an all-zero id).
+    public nonisolated func blame(_ path: String, at revision: String? = nil) async throws -> [BlameLine] {
+        var args = ["blame", "--porcelain", "-M", "-C"]
+        if let revision { args.append(revision) }
+        args += ["--", path]
+        return BlameParser.parse(try await git.runString(args, in: root))
+    }
+
+    // MARK: File history
+
+    public nonisolated func isDirectory(_ path: String) -> Bool {
+        var isDir: ObjCBool = false
+        return FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path, isDirectory: &isDir) && isDir.boolValue
+    }
+
+    /// History of one file across renames, in topo order, with parents rewritten to
+    /// the nearest ancestors that are also in the result (so the graph stays connected).
+    /// `git log --follow` finds the commits but turns parent rewriting off, so the
+    /// rewriting is done here against the full commit graph.
+    public nonisolated func fileHistory(_ path: String, includeHEAD: Bool) async throws -> [Commit] {
+        var revs = includeHEAD ? ["HEAD"] : []
+        revs += ["--branches", "--remotes", "--tags"]
+        let touched = try await git.runString(["log", "--follow", "--format=%H"] + revs + ["--", path], in: root)
+        let keep = Set(touched.split(separator: "\n").map(String.init))
+        guard !keep.isEmpty else { return [] }
+
+        var all: [Commit] = []
+        for try await record in logRecords(includeHEAD: includeHEAD) {
+            if let c = GitParse.commit(record) { all.append(c) }
+        }
+        let rewritten = Self.rewriteParents(all.map { ($0.id, $0.parents) }, keeping: keep)
+        return all.filter { keep.contains($0.id) }.map { c in
+            Commit(id: c.id, parents: rewritten[c.id] ?? [], authorName: c.authorName, authorEmail: c.authorEmail,
+                   date: c.date, subject: c.subject, refs: c.refs)
+        }
+    }
+
+    /// For commits in `topoOrder` (children before parents), the nearest ancestors of each
+    /// kept commit that are themselves kept.
+    static func rewriteParents(_ topoOrder: [(String, [String])], keeping keep: Set<String>) -> [String: [String]] {
+        var nearest: [String: [String]] = [:]  // commit → nearest kept ancestors (excluding itself)
+        var result: [String: [String]] = [:]
+        for (id, parents) in topoOrder.reversed() {
+            var acc: [String] = []
+            var seen = Set<String>()
+            for p in parents {
+                let candidates = keep.contains(p) ? [p] : (nearest[p] ?? [])
+                for c in candidates where seen.insert(c).inserted { acc.append(c) }
+            }
+            if keep.contains(id) { result[id] = acc }
+            nearest[id] = acc
+        }
+        return result
+    }
 }
 
 extension GitError {

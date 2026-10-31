@@ -155,6 +155,7 @@ struct RepoWindow: View {
         .sheet(item: $model.credentialPrompt) { CredentialSheet(prompt: $0) }
         .sheet(isPresented: $model.showStashSheet) { StashSheet(model: model) }
         .sheet(item: $model.tagSheet) { TagSheet(model: model, commit: $0) }
+        .sheet(item: $model.blameTarget) { BlameView(model: model, target: $0) }
         .confirmationDialog(resetTitle,
                             isPresented: Binding(get: { model.pendingReset != nil }, set: { if !$0 { model.pendingReset = nil } })) {
             if let r = model.pendingReset {
@@ -270,6 +271,9 @@ struct CommitDetailPane: View {
                     FileRow(letter: file.letter, path: file.path, origPath: file.origPath)
                         .contextMenu {
                             Button("Show History of “\((file.path as NSString).lastPathComponent)”") { model.showHistory(of: file.path) }
+                            if file.letter != "D" {
+                                Button("Blame at This Commit") { model.blameTarget = BlameTarget(path: file.path, revision: d.commit.id) }
+                            }
                             Button("Copy Path") {
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(file.path, forType: .string)

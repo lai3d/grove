@@ -116,6 +116,7 @@ final class RepoModel {
     private var filteredPosition: [Int: Int] = [:]
     var focusFilterToken = 0
     var showPalette = false
+    var blameTarget: BlameTarget?
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 
@@ -302,6 +303,14 @@ final class RepoModel {
             var flushAt = 300  // small first batch: paint fast, then go big
             var first = true
             do {
+                if let path, !repo.isDirectory(path) {
+                    // A file: follow renames (one batch, parents rewritten in Core).
+                    let rows = try await repo.fileHistory(path, includeHEAD: head != nil).map {
+                        CommitRow(commit: $0, graph: layout.add(id: $0.id, parents: $0.parents))
+                    }
+                    await self?.receive(rows, request: request, first: true, done: true)
+                    return
+                }
                 for try await record in repo.logRecords(includeHEAD: head != nil, path: path) {
                     guard let c = GitParse.commit(record) else { continue }
                     batch.append(CommitRow(commit: c, graph: layout.add(id: c.id, parents: c.parents)))

@@ -50,6 +50,9 @@ struct WorkingCopyView: View {
                     Button(action) { Task { await perform([e]) } }
                     if e.change.kind != .untracked {
                         Button("Show History") { model.showHistory(of: e.change.path) }
+                        if e.change.worktree != "D" {
+                            Button("Blame") { model.blameTarget = BlameTarget(path: e.change.path, revision: nil) }
+                        }
                     }
                     if let discard {
                         Divider()
