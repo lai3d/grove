@@ -43,3 +43,56 @@ import Testing
         #expect(str.count == 1 && sub("print(\"a \\\" b\")", str[0].range) == "\"a \\\" b\"")
     }
 }
+
+@Suite struct StatefulSyntaxTests {
+    private func sub(_ s: String, _ r: NSRange) -> String { (s as NSString).substring(with: r) }
+
+    @Test func blockCommentSpansLines() throws {
+        let h = try #require(SyntaxHighlighter.forPath("a.swift"))
+        var state = SyntaxHighlighter.State.normal
+        let l1 = "let x = 1 /* starts"
+        let t1 = h.tokens(l1, state: &state)
+        #expect(state == .blockComment && sub(l1, t1.last!.range) == "/* starts")
+        let t2 = h.tokens("let still = comment", state: &state)
+        #expect(t2.map(\.kind) == [.comment] && state == .blockComment)
+        let l3 = "ends */ let y = 2"
+        let t3 = h.tokens(l3, state: &state)
+        #expect(state == .normal && sub(l3, t3[0].range) == "ends */" && t3[1].kind == .keyword)
+    }
+
+    @Test func multilineStrings() throws {
+        let swift = try #require(SyntaxHighlighter.forPath("a.swift"))
+        var state = SyntaxHighlighter.State.normal
+        _ = swift.tokens("let s = \"\"\"", state: &state)
+        #expect(state == .string("\"\"\""))
+        #expect(swift.tokens("  if let = not code", state: &state).map(\.kind) == [.string])
+        let end = swift.tokens("  \"\"\" + x", state: &state)
+        #expect(state == .normal && end.first?.kind == .string)
+
+        let js = try #require(SyntaxHighlighter.forPath("a.ts"))
+        state = .normal
+        _ = js.tokens("const q = `select", state: &state)
+        #expect(state == .string("`"))
+        _ = js.tokens("from t`;", state: &state)
+        #expect(state == .normal)
+    }
+
+    @Test func hunkSidesKeepSeparateState() throws {
+        let diff = try #require(DiffParser.parse("""
+        diff --git a/a.swift b/a.swift
+        --- a/a.swift
+        +++ b/a.swift
+        @@ -1,3 +1,3 @@
+        -/* old comment opens
+        +let fresh = 1
+         let shared = 2
+         */
+
+        """).first)
+        let h = try #require(SyntaxHighlighter.forPath("a.swift"))
+        let toks = h.tokens(for: diff.hunks[0])
+        // New side: line 2 is code (keyword "let"); the old side treated it as comment but display uses new.
+        #expect(toks[1].first?.kind == .keyword)
+        #expect(toks[0].first?.kind == .comment)
+    }
+}

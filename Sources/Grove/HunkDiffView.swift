@@ -26,6 +26,7 @@ struct HunkDiffView: View {
     @State private var anchor: (hunk: Int, line: Int)?
     private let styler: DiffStyler
     private let words: [[Int: [NSRange]]]
+    private let syntax: [[[SyntaxHighlighter.Token]]]
 
     init(model: RepoModel, diff: FileDiff, staged: Bool) {
         self.model = model
@@ -33,6 +34,7 @@ struct HunkDiffView: View {
         self.staged = staged
         styler = DiffStyler(path: diff.newPath ?? diff.oldPath ?? "")
         words = diff.hunks.map(DiffStyler.wordRanges)
+        syntax = diff.hunks.map(styler.tokens)
     }
 
     var body: some View {
@@ -43,7 +45,7 @@ struct HunkDiffView: View {
                         // IDs must be unique across sections of one LazyVStack.
                         ForEach(Array(hunk.lines.enumerated()), id: \.offset) { i, line in
                             DiffLineRow(line: line, selected: model.selectedLines[h]?.contains(i) == true,
-                                        text: styler.text(line, changed: words[h][i] ?? []))
+                                        text: styler.text(line, tokens: syntax[h][i], changed: words[h][i] ?? []))
                                 .contentShape(Rectangle())
                                 .onTapGesture { toggle(hunk: h, line: i) }
                                 .id("\(h)-\(i)")

@@ -58,12 +58,15 @@ struct DiffStyler {
 
     init(path: String) { highlighter = SyntaxHighlighter.forPath(path) }
 
-    func text(_ line: DiffLine, changed: [NSRange]) -> AttributedString {
+    /// Syntax tokens for each line of a hunk (multi-line comments / strings carried across lines).
+    func tokens(_ hunk: DiffHunk) -> [[SyntaxHighlighter.Token]] {
+        highlighter?.tokens(for: hunk) ?? Array(repeating: [], count: hunk.lines.count)
+    }
+
+    func text(_ line: DiffLine, tokens: [SyntaxHighlighter.Token], changed: [NSRange]) -> AttributedString {
         let ns = NSMutableAttributedString(string: line.text.isEmpty ? " " : line.text)
-        if let highlighter {
-            for t in highlighter.tokens(line.text) {
-                ns.addAttribute(.foregroundColor, value: Self.color(t.kind), range: t.range)
-            }
+        for t in tokens where NSMaxRange(t.range) <= ns.length {
+            ns.addAttribute(.foregroundColor, value: Self.color(t.kind), range: t.range)
         }
         let strong: NSColor = line.kind == .added ? .systemGreen.withAlphaComponent(0.38) : .systemRed.withAlphaComponent(0.34)
         for r in changed where NSMaxRange(r) <= ns.length {
@@ -99,12 +102,14 @@ struct RichDiffView: View {
     let mode: DiffMode
     private let styler: DiffStyler
     private let words: [[Int: [NSRange]]]
+    private let syntax: [[[SyntaxHighlighter.Token]]]
 
     init(diff: FileDiff, path: String, mode: DiffMode) {
         self.diff = diff
         self.mode = mode
         styler = DiffStyler(path: path)
         words = diff.hunks.map(DiffStyler.wordRanges)
+        syntax = diff.hunks.map(styler.tokens)
     }
 
     var body: some View {
@@ -116,12 +121,13 @@ struct RichDiffView: View {
                         case .unified:
                             ForEach(diff.hunks[h].lines.indices, id: \.self) { i in
                                 let line = diff.hunks[h].lines[i]
-                                DiffLineRow(line: line, selected: false, text: styler.text(line, changed: words[h][i] ?? []))
+                                DiffLineRow(line: line, selected: false,
+                                            text: styler.text(line, tokens: syntax[h][i], changed: words[h][i] ?? []))
                             }
                         case .split:
                             let rows = diff.hunks[h].splitRows
                             ForEach(rows.indices, id: \.self) { r in
-                                SplitRowView(row: rows[r], styler: styler, words: words[h])
+                                SplitRowView(row: rows[r], styler: styler, words: words[h], syntax: syntax[h])
                             }
                         }
                         Spacer().frame(height: 8)
@@ -146,6 +152,7 @@ struct SplitRowView: View {
     let row: SplitRow
     let styler: DiffStyler
     let words: [Int: [NSRange]]
+    let syntax: [[SyntaxHighlighter.Token]]
     @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
@@ -164,7 +171,7 @@ struct SplitRowView: View {
                 .frame(width: 40, alignment: .trailing)
                 .padding(.trailing, 6)
             if let line, let index {
-                Text(styler.text(line, changed: words[index] ?? []))
+                Text(styler.text(line, tokens: syntax[index], changed: words[index] ?? []))
                     .font(.system(size: diffFontSize, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
