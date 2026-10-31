@@ -115,6 +115,7 @@ final class RepoModel {
     private(set) var filtered: [Int]?
     private var filteredPosition: [Int: Int] = [:]
     var focusFilterToken = 0
+    var showPalette = false
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 

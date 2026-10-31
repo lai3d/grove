@@ -41,6 +41,10 @@ struct GroveCommands: Commands {
             .keyboardShortcut("o")
         }
         CommandMenu("Repository") {
+            Button("Quick Open…") { model?.showPalette.toggle() }
+                .keyboardShortcut("k")
+                .disabled(model == nil)
+            Divider()
             Button("Refresh") { Task { await model?.refresh() } }
                 .keyboardShortcut("r")
                 .disabled(model == nil)

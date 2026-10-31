@@ -98,6 +98,16 @@ struct RepoWindow: View {
         }
         .navigationTitle(model.title)
         .navigationSubtitle(model.currentBranch ?? (model.repo == nil ? "" : "detached HEAD"))
+        .overlay(alignment: .top) {
+            if model.showPalette {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.08)
+                        .ignoresSafeArea()
+                        .onTapGesture { model.showPalette = false }
+                    QuickSwitcher(model: model).padding(.top, 70)
+                }
+            }
+        }
         .inspector(isPresented: $model.showActivity) {
             ActivityView(model: model)
                 .inspectorColumnWidth(min: 260, ideal: 340, max: 600)
