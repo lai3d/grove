@@ -4,13 +4,32 @@ import SwiftUI
 
 struct RootView: View {
     @Binding var url: URL?
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
-        if let url {
-            RepoWindow(url: url).id(url)
-        } else {
-            WelcomeView { url = $0 }
-                .onAppear { if let launch = LaunchOptions.take() { url = launch } }
+        Group {
+            if let url {
+                RepoWindow(url: url).id(url)
+            } else {
+                WelcomeView { url = $0 }
+            }
+        }
+        .onAppear(perform: openLaunchRepository)
+    }
+
+    /// The repository named at launch: shown here if this is the welcome window, otherwise
+    /// (state restoration brought back other repositories) in its own window / tab.
+    private func openLaunchRepository() {
+        guard let launch = LaunchOptions.take() else { return }
+        // State restoration sets a restored window's value after its first appearance:
+        // decide once that has settled, or the restored repository would replace this one.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(150))
+            if url == nil {
+                url = launch
+            } else if url?.standardizedFileURL != launch.standardizedFileURL {
+                openWindow(id: "repository", value: launch)
+            }
         }
     }
 }
@@ -94,6 +113,9 @@ struct RepoWindow: View {
             VStack(spacing: 0) {
                 if let op = model.operation {
                     OperationBanner(model: model, operation: op)
+                }
+                if let b = model.bisect {
+                    BisectBanner(model: model, state: b)
                 }
                 if model.showsWorkingCopy {
                     WorkingCopyView(model: model)
@@ -491,6 +513,61 @@ struct OperationBanner: View {
             return "Rebasing “\(b ?? branch)” onto \(onto ?? "")\(progress)"
         case .cherryPick: return "Cherry-pick paused"
         case .revert: return "Revert paused"
+        }
+    }
+}
+
+struct BisectBanner: View {
+    let model: RepoModel
+    let state: BisectState
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: state.phase == .found ? "scope" : "point.topleft.down.to.point.bottomright.curvepath")
+                .foregroundStyle(state.phase == .found ? .red : .accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).fontWeight(.semibold)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if let c = state.culprit {
+                Button("Show Commit") { model.revealInHistory(c) }
+            } else if state.phase == .testing {
+                Button("Good") { Task { await model.bisect(.good) } }
+                Button("Bad") { Task { await model.bisect(.bad) } }
+                Button("Skip") { Task { await model.bisect(.skip) } }
+            }
+            Button("End Bisect") { Task { await model.bisectReset() } }
+                .buttonStyle(.borderedProminent)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.accentColor.opacity(0.10))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var title: String {
+        switch state.phase {
+        case .needsBad: "Bisecting — mark a bad commit"
+        case .needsGood: "Bisecting — mark a good commit"
+        case .testing: "Bisecting — is the checked-out commit good or bad?"
+        case .found: "Found the first bad commit"
+        }
+    }
+
+    private var detail: String {
+        switch state.phase {
+        case .needsBad, .needsGood: "Right-click a commit in History ▸ Bisect"
+        case .testing:
+            if let n = state.remaining, let steps = state.steps {
+                "\(n) revision\(n == 1 ? "" : "s") left to test (about \(steps) step\(steps == 1 ? "" : "s"))"
+            } else { "Test this commit, then mark it" }
+        case .found:
+            state.culprit.map { c in
+                let subject = model.rowIndex[c].map { model.rows[$0].commit.subject } ?? ""
+                return "\(c.prefix(8)) \(subject) — End Bisect returns to where you started"
+            } ?? ""
         }
     }
 }
