@@ -127,8 +127,16 @@ public actor Repository {
     }
 
     /// Runs `git commit` so hooks and commit signing apply.
-    public func commit(message: String) async throws {
-        _ = try await git.run(["commit", "-F", "-"], in: root, input: Data(message.utf8))
+    public func commit(message: String, amend: Bool = false, signOff: Bool = false) async throws {
+        var args = ["commit", "-F", "-"]
+        if amend { args.append("--amend") }
+        if signOff { args.append("--signoff") }
+        _ = try await git.run(args, in: root, input: Data(message.utf8))
+    }
+
+    /// True when HEAD is already contained in its branch's upstream (amending would rewrite published history).
+    public nonisolated func isHeadPushed() async -> Bool {
+        (try? await git.run(["merge-base", "--is-ancestor", "HEAD", "@{upstream}"], in: root)) != nil
     }
 
     // MARK: Branches

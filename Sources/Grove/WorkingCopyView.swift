@@ -70,30 +70,60 @@ struct WorkingCopyView: View {
     }
 
     private var commitBox: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             TextEditor(text: $model.commitMessage)
                 .font(.body)
                 .scrollContentBackground(.hidden)
                 .padding(6)
-                .frame(height: 90)
+                .frame(height: 96)
                 .background(RoundedRectangle(cornerRadius: 6).fill(.background))
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
                 .overlay(alignment: .topLeading) {
                     if model.commitMessage.isEmpty {
-                        Text("Commit message").foregroundStyle(.tertiary).padding(.horizontal, 11).padding(.vertical, 6)
+                        Text("Summary\n\nDescription").foregroundStyle(.tertiary).padding(.horizontal, 11).padding(.vertical, 6)
                             .allowsHitTesting(false)
                     }
                 }
-            Button {
-                Task { await model.commit() }
-            } label: {
-                Text(model.currentBranch.map { "Commit to \($0)" } ?? "Commit")
-                    .frame(minWidth: 120)
+                .overlay(alignment: .topTrailing) { subjectCounter.padding(6) }
+            if model.amend && model.headIsPushed {
+                Label("HEAD is already pushed — amending rewrites published history.", systemImage: "exclamationmark.triangle.fill")
+                    .font(.caption)
+                    .foregroundStyle(.orange)
             }
-            .keyboardShortcut(.return, modifiers: .command)
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.canCommit)
+            HStack {
+                Toggle("Amend", isOn: $model.amend)
+                    .help("Replace the last commit (loads its message)")
+                Toggle("Sign-off", isOn: $model.signOff)
+                    .help("Add a Signed-off-by trailer")
+                Spacer()
+                Button {
+                    Task { await model.commit() }
+                } label: {
+                    Text(commitTitle).frame(minWidth: 110)
+                }
+                .keyboardShortcut(.return, modifiers: .command)
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canCommit)
+            }
+            .toggleStyle(.checkbox)
+            .controlSize(.small)
         }
         .padding(10)
+    }
+
+    private var commitTitle: String {
+        if model.amend { return "Amend Commit" }
+        return model.currentBranch.map { "Commit to \($0)" } ?? "Commit"
+    }
+
+    /// First-line length: ≤50 fine, ≤72 orange, beyond red.
+    @ViewBuilder private var subjectCounter: some View {
+        let subject = model.commitMessage.split(separator: "\n", omittingEmptySubsequences: false).first ?? ""
+        if !subject.isEmpty {
+            Text("\(subject.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(subject.count > 72 ? .red : subject.count > 50 ? .orange : .secondary)
+                .help("Summary line length (keep it under 50, wrap at 72)")
+        }
     }
 }

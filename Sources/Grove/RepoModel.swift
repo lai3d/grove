@@ -139,6 +139,14 @@ final class RepoModel {
     var selectedEntry: ChangeEntry? { entry(for: selectedChangeID) }
     var commitMessage = ""
     private(set) var isCommitting = false
+    var amend = false {
+        didSet { if oldValue != amend { amendToggled() } }
+    }
+    var signOff = UserDefaults.standard.bool(forKey: "signOff") {
+        didSet { UserDefaults.standard.set(signOff, forKey: "signOff") }
+    }
+    private(set) var headIsPushed = false
+    private var draftBeforeAmend = ""
 
     // Branch UI
     var branchSheet: BranchSheet?
@@ -383,7 +391,24 @@ final class RepoModel {
     }
 
     var canCommit: Bool {
-        !isCommitting && !stagedEntries.isEmpty && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        !isCommitting && (amend || !stagedEntries.isEmpty)
+            && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func amendToggled() {
+        guard let repo else { return }
+        if amend {
+            draftBeforeAmend = commitMessage
+            Task {
+                async let message = repo.message(of: "HEAD")
+                async let pushed = repo.isHeadPushed()
+                let m = (try? await message) ?? ""
+                headIsPushed = await pushed
+                if amend { commitMessage = m.trimmingCharacters(in: .whitespacesAndNewlines) }
+            }
+        } else {
+            commitMessage = draftBeforeAmend
+        }
     }
 
     func commit() async {
@@ -391,8 +416,10 @@ final class RepoModel {
         isCommitting = true
         defer { isCommitting = false }
         do {
-            try await repo.commit(message: commitMessage)
+            try await repo.commit(message: commitMessage, amend: amend, signOff: signOff)
+            draftBeforeAmend = ""
             commitMessage = ""
+            amend = false
             selectedCommitID = nil
             await refresh()
         } catch {

@@ -120,6 +120,20 @@ import Testing
         #expect(try await repo.status().first { $0.path == "tracked.txt" }?.isStaged == false)
     }
 
+    @Test func amendAndSignOff() async throws {
+        let repo = try await Repository.open(dir)
+        try write("a.txt", "1\n")
+        try await repo.stage(["a.txt"])
+        try await repo.commit(message: "first", signOff: true)
+        #expect(try await repo.message(of: "HEAD").contains("Signed-off-by: Test <test@example.com>"))
+
+        try await repo.commit(message: "first, reworded", amend: true)
+        #expect(try await repo.message(of: "HEAD").hasPrefix("first, reworded"))
+        let count = try await git.runString(["rev-list", "--count", "HEAD"], in: dir)
+        #expect(count.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
+        #expect(await repo.isHeadPushed() == false)  // no upstream
+    }
+
     @Test func gitErrorsSurface() async throws {
         let repo = try await Repository.open(dir)
         await #expect(throws: GitError.self) { try await repo.message(of: "does-not-exist") }
