@@ -22,6 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 struct GroveApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        // `Grove /path/to/repo` (or `open -a Grove --args /path`): without this AppKit treats the
+        // path as a document to open, and SwiftUI apps built with the macOS 26 SDK then never
+        // create their first window. LaunchOptions reads the path itself.
+        UserDefaults.standard.register(defaults: ["NSTreatUnknownArgumentsAsOpen": "NO"])
+    }
+
     var body: some Scene {
         // One window per repository; a window without a value shows the welcome screen.
         WindowGroup("Grove", id: "repository", for: URL.self) { $url in
