@@ -56,6 +56,7 @@ struct WorkingCopyView: View {
                             Button("Blame") { model.blameTarget = BlameTarget(path: e.change.path, revision: nil) }
                         }
                     }
+                    Button("Stash This File…") { model.beginStash([e.change.path]) }
                     if let discard {
                         Divider()
                         Button("Discard Changes…") { discard([e]) }

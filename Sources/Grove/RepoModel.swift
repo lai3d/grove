@@ -853,10 +853,18 @@ final class RepoModel {
         }
     }
 
-    func stashChanges(message: String, includeUntracked: Bool) async -> String? {
+    /// Files the stash sheet starts with ticked (nil: all), e.g. from a file's "Stash…" menu item.
+    var stashPreselection: Set<String>?
+
+    func beginStash(_ paths: Set<String>? = nil) {
+        stashPreselection = paths
+        showStashSheet = true
+    }
+
+    func stashChanges(message: String, includeUntracked: Bool, keepIndex: Bool = false, paths: [String]? = nil) async -> String? {
         guard let repo else { return nil }
         do {
-            try await repo.stash(message: message, includeUntracked: includeUntracked)
+            try await repo.stash(message: message, includeUntracked: includeUntracked, keepIndex: keepIndex, paths: paths)
         } catch {
             return "\(error)"
         }

@@ -47,8 +47,17 @@ struct StashSheet: View {
     let model: RepoModel
     @State private var message = ""
     @State private var includeUntracked = true
+    @State private var keepIndex = false
+    @State private var selected: Set<String> = []
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
+
+    /// Conflicted files can't be stashed.
+    private var files: [FileChange] { model.changes.filter { $0.kind != .unmerged } }
+
+    private func stashable(_ f: FileChange) -> Bool { includeUntracked || f.kind != .untracked }
+
+    private var chosen: [FileChange] { files.filter { selected.contains($0.path) && stashable($0) } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -56,23 +65,53 @@ struct StashSheet: View {
             TextField("Message (optional)", text: $message)
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(save)
+            List {
+                ForEach(files) { f in
+                    Toggle(isOn: Binding(get: { selected.contains(f.path) && stashable(f) },
+                                         set: { if $0 { selected.insert(f.path) } else { selected.remove(f.path) } })) {
+                        FileRow(letter: f.kind == .untracked ? "?" : (f.index != "." ? f.index : f.worktree), path: f.path)
+                    }
+                    .disabled(!stashable(f))
+                }
+            }
+            .listStyle(.bordered(alternatesRowBackgrounds: true))
+            .frame(height: min(CGFloat(files.count) * 26 + 8, 220))
+            HStack {
+                Button(chosen.count == files.filter(stashable).count ? "Select None" : "Select All") {
+                    selected = chosen.count == files.filter(stashable).count ? [] : Set(files.map(\.path))
+                }
+                .buttonStyle(.link)
+                Spacer()
+                Text("\(chosen.count) of \(files.filter(stashable).count) files").font(.caption).foregroundStyle(.secondary)
+            }
             Toggle("Include untracked files", isOn: $includeUntracked)
+            Toggle("Keep staged changes in the working tree", isOn: $keepIndex)
+                .help("git stash --keep-index: staged changes are stashed too, but also stay in place")
             if let error {
                 Text(error).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Stash", action: save).keyboardShortcut(.defaultAction)
+                Button("Stash", action: save).keyboardShortcut(.defaultAction).disabled(chosen.isEmpty)
             }
         }
         .padding(20)
-        .frame(width: 400)
+        .frame(width: 460)
+        .onAppear {
+            selected = model.stashPreselection ?? Set(files.map(\.path))
+            model.stashPreselection = nil
+        }
     }
 
     private func save() {
+        guard !chosen.isEmpty else { return }
+        // Everything ticked: a plain stash (keeps renames whole); otherwise just those paths.
+        let all = chosen.count == files.filter(stashable).count && files.count == model.changes.count
+        let paths = all ? nil : chosen.flatMap { [$0.path] + ($0.origPath.map { [$0] } ?? []) }
         Task {
-            if let e = await model.stashChanges(message: message, includeUntracked: includeUntracked) {
+            if let e = await model.stashChanges(message: message, includeUntracked: includeUntracked,
+                                                keepIndex: keepIndex, paths: paths) {
                 error = e
             } else {
                 dismiss()

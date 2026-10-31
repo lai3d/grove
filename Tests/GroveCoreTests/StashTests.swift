@@ -77,4 +77,30 @@ import Testing
         #expect(try await repo.stashes().isEmpty)
         await #expect(throws: GitError.self) { try await repo.dropStash(one) }
     }
+
+    @Test func stashSelectedFilesAndKeepIndex() async throws {
+        let repo = try await Repository.open(dir)
+        try write("b.txt", "b\n")
+        _ = try await git.run(["add", "b.txt"], in: dir)
+        _ = try await git.run(["commit", "-qm", "b"], in: dir)
+        try write("a.txt", "2\n")
+        try write("b.txt", "B\n")
+        try write("new file.txt", "n\n")
+
+        try await repo.stash(message: "only a + new", includeUntracked: true, paths: ["a.txt", "new file.txt"])
+        #expect(try read("a.txt") == "1\n"); #expect(try read("b.txt") == "B\n")
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("new file.txt").path))
+        let s = try #require(try await repo.stashes().first)
+        #expect(s.message.hasSuffix("only a + new"))
+        try await repo.applyStash(s, pop: true)
+        #expect(try read("a.txt") == "2\n"); #expect(try read("new file.txt") == "n\n")
+
+        // keep-index: staged b.txt stays staged and in the tree, but is also saved in the stash.
+        _ = try await git.run(["add", "b.txt"], in: dir)
+        try await repo.stash(message: "", includeUntracked: false, keepIndex: true)
+        #expect(try read("b.txt") == "B\n"); #expect(try read("a.txt") == "1\n")
+        let staged = try await git.runString(["diff", "--cached", "--name-only"], in: dir)
+        #expect(staged == "b.txt\n")
+        await #expect(throws: GitError.self) { try await repo.stash(message: "", includeUntracked: false, paths: []) }
+    }
 }

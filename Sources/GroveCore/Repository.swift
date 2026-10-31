@@ -278,10 +278,16 @@ public actor Repository {
         }
     }
 
-    public func stash(message: String, includeUntracked: Bool) async throws {
+    /// `paths`: stash only these files (nil = everything). `keepIndex`: staged changes also stay in place.
+    public func stash(message: String, includeUntracked: Bool, keepIndex: Bool = false, paths: [String]? = nil) async throws {
         var args = ["stash", "push"]
         if includeUntracked { args.append("--include-untracked") }
+        if keepIndex { args.append("--keep-index") }
         if !message.isEmpty { args += ["-m", message] }
+        if let paths {
+            guard !paths.isEmpty else { throw GitError(arguments: args, exitCode: 1, stderr: "No files selected") }
+            args += ["--"] + paths.map { ":(literal)" + $0 }
+        }
         _ = try await git.run(args, in: root)
     }
 
