@@ -390,15 +390,53 @@ final class RepoModel {
         }
     }
 
-    private func applyFilter() {
+    /// `s:text` → commits adding / removing text; `g:regex` → commits whose diff matches.
+    var contentQuery: (text: String, regex: Bool)? {
         let q = historyFilter.trimmingCharacters(in: .whitespaces)
-        if q.isEmpty {
+        for (prefix, regex) in [("s:", false), ("g:", true)] where q.hasPrefix(prefix) {
+            let text = q.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+            return text.isEmpty ? nil : (text, regex)
+        }
+        return nil
+    }
+    private(set) var isSearchingContent = false
+    private(set) var contentSearchError: String?
+    private var contentMatches: Set<String>?
+    private var contentTask: Task<Void, Never>?
+
+    private func applyFilter() {
+        contentTask?.cancel()
+        isSearchingContent = false
+        contentSearchError = nil
+        contentMatches = nil
+        let q = historyFilter.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty || q == "s:" || q == "g:" {
             filtered = nil
             filteredPosition = [:]
         } else {
             filtered = []
             filteredPosition = [:]
-            extendFilter(from: 0)
+            if let cq = contentQuery, let repo {
+                isSearchingContent = true
+                let path = pathFilter
+                contentTask = Task { [weak self] in
+                    try? await Task.sleep(for: .milliseconds(350))  // debounce typing
+                    guard !Task.isCancelled else { return }
+                    do {
+                        let ids = try await repo.searchContent(cq.text, regex: cq.regex, path: path)
+                        guard !Task.isCancelled, let self else { return }
+                        self.contentMatches = ids
+                        self.extendFilter(from: 0)
+                        self.logGeneration += 1
+                    } catch {
+                        guard !Task.isCancelled else { return }
+                        self?.contentSearchError = (error as? GitError)?.stderr.trimmingCharacters(in: .whitespacesAndNewlines) ?? "\(error)"
+                    }
+                    self?.isSearchingContent = false
+                }
+            } else {
+                extendFilter(from: 0)
+            }
         }
         logGeneration += 1
         if let id = selectedCommitID, displayIndex(of: id) != nil { scrollToken += 1 }
@@ -406,6 +444,14 @@ final class RepoModel {
 
     private func extendFilter(from start: Int) {
         guard filtered != nil else { return }
+        if contentQuery != nil {
+            guard let matches = contentMatches else { return }
+            for i in start..<rows.count where matches.contains(rows[i].id) {
+                filteredPosition[i] = filtered!.count
+                filtered!.append(i)
+            }
+            return
+        }
         let q = historyFilter.trimmingCharacters(in: .whitespaces)
         let isHex = q.count >= 4 && q.allSatisfy(\.isHexDigit)
         for i in start..<rows.count {

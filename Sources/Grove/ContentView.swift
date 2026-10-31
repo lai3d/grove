@@ -384,7 +384,7 @@ struct HistoryFilterBar: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Filter by message, author, SHA or ref", text: $model.historyFilter)
+            TextField("Filter by message, author, SHA or ref — s:text or g:regex searches diffs", text: $model.historyFilter)
                 .textFieldStyle(.plain)
                 .focused($focused)
                 .autocorrectionDisabled()
@@ -403,7 +403,12 @@ struct HistoryFilterBar: View {
                 .background(Capsule().fill(Color.accentColor.opacity(0.15)))
                 .frame(maxWidth: 260)
             }
-            if model.isFiltering || model.pathFilter != nil {
+            if model.isSearchingContent {
+                ProgressView().controlSize(.small)
+                Text("Searching diffs…").font(.caption).foregroundStyle(.secondary)
+            } else if let error = model.contentSearchError {
+                Text(error).font(.caption).foregroundStyle(.red).lineLimit(1).frame(maxWidth: 260)
+            } else if model.isFiltering || model.pathFilter != nil {
                 Text("\(model.displayCount) commit\(model.displayCount == 1 ? "" : "s")")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }

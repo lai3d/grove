@@ -707,6 +707,21 @@ public actor Repository {
         let out = try await git.run(["log", "-1", "-z", GitParse.logFormat, rev], in: root)
         return GitParse.commit(out.split(separator: 0).first.map { Data($0) } ?? Data())
     }
+
+    // MARK: Content search
+
+    /// Commits (across all refs) whose diff adds or removes `text` (`-S`), or whose diff has a
+    /// line matching the regex (`-G`). Cancelling the task stops git.
+    public nonisolated func searchContent(_ text: String, regex: Bool, path: String? = nil) async throws -> Set<String> {
+        var args = ["log", "-z", "--format=%H", regex ? "-G\(text)" : "-S\(text)", "HEAD", "--branches", "--remotes", "--tags"]
+        if let path { args += ["--", path] }
+        var ids = Set<String>()
+        for try await record in git.records(args, in: root) {
+            try Task.checkCancellation()
+            ids.insert(String(decoding: record, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        return ids
+    }
 }
 
 extension GitError {
