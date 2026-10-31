@@ -624,7 +624,7 @@ final class RepoModel {
         guard let repo else { return }
         do {
             try await repo.deleteBranch(ref.name, force: force)
-            registerUndo("Delete Branch", .restoreBranch(ref.name, sha: ref.target))
+            registerUndo("Delete Branch", .restoreBranch(ref.name, sha: ref.target, checkout: false))
             if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .history }
         } catch let e as GitError where e.isNotFullyMerged && !force {
             forceDelete = ref
@@ -746,7 +746,7 @@ final class RepoModel {
         guard let diff = workingFileDiff, let repo else { return }
         let snapshot = action == .discard ? try? await repo.snapshotChanges() : nil
         let ok = await write { try await $0.apply(action, hunk: hunk, lines: lines, in: diff) }
-        if ok, let snapshot { registerUndo("Discard", .restoreChanges(snapshot: snapshot, untracked: [:])) }
+        if ok, let snapshot { registerUndo("Discard", .restoreChanges(snapshot: snapshot, untracked: [:], paths: [])) }
         selectedLines = [:]
     }
 
@@ -758,7 +758,7 @@ final class RepoModel {
         let untracked = repo.readFiles(entries.filter { $0.change.kind == .untracked }.map(\.change.path))
         if await write({ try await $0.discard(entries.map(\.change)) }) {
             if let untracked {
-                registerUndo("Discard Changes", .restoreChanges(snapshot: snapshot, untracked: untracked))
+                registerUndo("Discard Changes", .restoreChanges(snapshot: snapshot, untracked: untracked, paths: entries.map(\.change.path)))
             } else {
                 undoManager?.removeAllActions(withTarget: self)  // too large to keep — no undo
             }
@@ -923,9 +923,12 @@ final class RepoModel {
         case moveHead(String, Repository.MoveMode, snapshot: String?)
         case switchTo(Position)
         case deleteBranch(String, switchBackTo: Position?)
-        case restoreBranch(String, sha: String)
-        case restoreChanges(snapshot: String?, untracked: [String: Data])
+        case restoreBranch(String, sha: String, checkout: Bool)
+        /// `paths` (when non-empty) lets a redo discard the same files again.
+        case restoreChanges(snapshot: String?, untracked: [String: Data], paths: [String])
+        case discardAgain(paths: [String])
         case restoreStash(sha: String, message: String)
+        case dropStash(sha: String)
     }
 
     /// Where HEAD is: a branch, or a detached commit.
@@ -939,39 +942,84 @@ final class RepoModel {
         return Position(branch: await repo.currentBranch(), sha: sha)
     }
 
+    /// Holds the inverse of an action once it has been computed (it needs git state that is
+    /// only known after the action ran asynchronously).
+    final class ActionBox {
+        var action: UndoAction?
+        init(_ action: UndoAction?) { self.action = action }
+    }
+
     func registerUndo(_ title: String, _ action: UndoAction) {
         guard let um = undoManager else { return }
+        install(title, ActionBox(action), on: um)
+    }
+
+    /// Registers `box` with the undo manager. When it fires (as an undo or a redo) it first
+    /// registers a placeholder for its own inverse — synchronously, so UndoManager puts it on
+    /// the opposite stack — then runs and fills the placeholder in.
+    private func install(_ title: String, _ box: ActionBox, on um: UndoManager) {
         um.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated {
-                _ = Task<Void, Never> { await model.runUndo(action) }
+                let inverse = ActionBox(nil)
+                model.install(title, inverse, on: um)
+                guard let action = box.action else { return }
+                _ = Task<Void, Never> { inverse.action = await model.apply(action) }
             }
         }
         um.setActionName(title)
     }
 
-    private func runUndo(_ action: UndoAction) async {
+    /// Runs an undo / redo action and returns the action that reverses it (nil if it failed).
+    private func apply(_ action: UndoAction) async -> UndoAction? {
+        guard let repo else { return nil }
         switch action {
         case .moveHead(let sha, let mode, let snapshot):
-            await perform { repo in
+            guard let current = await repo.headID() else { return nil }
+            let saved = mode == .hard ? try? await repo.snapshotChanges() : nil
+            let ok = await perform { repo in
                 try await repo.moveHead(to: sha, mode: mode)
                 if let snapshot { try await repo.restoreSnapshot(snapshot) }
             }
+            return ok ? .moveHead(current, mode, snapshot: saved) : nil
         case .switchTo(let pos):
-            await perform { repo in try await self.switchTo(pos, in: repo) }
+            let current = await position()
+            let ok = await perform { repo in try await self.switchTo(pos, in: repo) }
+            return ok ? current.map { .switchTo($0) } : nil
         case .deleteBranch(let name, let back):
-            await perform { repo in
+            let sha = refs.first { $0.kind == .branch && $0.name == name }?.target
+            let ok = await perform { repo in
                 if let back { try await self.switchTo(back, in: repo) }
                 try await repo.deleteBranch(name, force: true)
             }
-        case .restoreBranch(let name, let sha):
-            await perform { try await $0.restoreBranch(name, at: sha) }
-        case .restoreChanges(let snapshot, let untracked):
-            await write { repo in
+            return ok ? sha.map { .restoreBranch(name, sha: $0, checkout: back != nil) } : nil
+        case .restoreBranch(let name, let sha, let checkout):
+            let current = await position()
+            let ok = await perform { repo in
+                try await repo.restoreBranch(name, at: sha)
+                if checkout { try await repo.switchBranch(name) }
+            }
+            return ok ? .deleteBranch(name, switchBackTo: checkout ? current : nil) : nil
+        case .restoreChanges(let snapshot, let untracked, let paths):
+            let ok = await write { repo in
                 if let snapshot { try await repo.restoreSnapshot(snapshot) }
                 try repo.writeFiles(untracked)
             }
+            return ok && !paths.isEmpty ? .discardAgain(paths: paths) : nil
+        case .discardAgain(let paths):
+            let wanted = Set(paths)
+            let changes = changes.filter { wanted.contains($0.path) && $0.isUnstaged }
+            guard !changes.isEmpty else { return nil }
+            let snapshot = try? await repo.snapshotChanges()
+            guard let untracked = repo.readFiles(changes.filter { $0.kind == .untracked }.map(\.path)) else { return nil }
+            let ok = await write { try await $0.discard(changes) }
+            return ok ? .restoreChanges(snapshot: snapshot, untracked: untracked, paths: paths) : nil
         case .restoreStash(let sha, let message):
-            await write { try await $0.restoreStash(sha, message: message) }
+            let ok = await write { try await $0.restoreStash(sha, message: message) }
+            return ok ? .dropStash(sha: sha) : nil
+        case .dropStash(let sha):
+            guard let stash = stashes.first(where: { $0.id == sha }) else { return nil }
+            let ok = await write { try await $0.dropStash(stash) }
+            return ok ? .restoreStash(sha: sha, message: stash.message) : nil
         }
     }
 

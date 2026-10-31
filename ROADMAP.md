@@ -47,3 +47,18 @@ Estimates are Claude Code session time.
 | 3.3 | ✅ Large-repo performance | `git log` runs undecorated (ref badges come from `for-each-ref`; `--decorate` made the first byte ~3× slower). "Optimize Repository" (suggested for 20k+ commits without one): commit-graph with changed-path filters, fsmonitor, untracked cache. Benchmark harness (`GROVE_BENCH_REPO=… swift test -c release --filter Benchmarks`): 300k commits stream + lay out in ~5.6 s, first rows ~1.3 s, status 0.1 s | 0.5h |
 | 3.4 | ✅ GitHub / GitLab | Open commit / branch / PR in browser; create PR for current branch | 0.5h |
 | 3.5 | 🚧 Release pipeline | ✅ CI build on every push and tag-triggered GitHub Release of an ad-hoc signed `Grove-vX.Y.Z.zip` (#1–#3). ⬜ Developer ID signing + notarization + Sparkle updates | 0.5h + **user must do this manually**: Apple Developer account, Developer ID certificate, notarization credentials as repo secrets — duration outside Claude's control |
+
+## Phase 4 — Depth
+
+| # | Item | Notes | Est. |
+|---|---|---|---|
+| 4.1 | ✅ Redo | ⇧⌘Z re-applies an undone git action (each undo registers its inverse) | 0.3h |
+| 4.2 | ⬜ Reflog | Sidebar "Reflog": HEAD's recent positions with the action that moved it; select to inspect, check out or reset to it — the safety net for anything Undo doesn't cover | 0.4h |
+| 4.3 | ⬜ Content search | Find commits that added / removed text (`git log -S`) or whose diff matches a regex (`-G`), from the history filter (`s:` / `g:` prefixes) | 0.4h |
+| 4.4 | ⬜ Signatures | Commit detail shows GPG / SSH signature status and signer (verified lazily per selected commit) | 0.3h |
+| 4.5 | ⬜ Git LFS | Detect LFS; mark LFS-tracked files; show pointer diffs as "LFS object a → b (size)"; LFS fetch / pull go through git's hooks | 0.4h |
+| 4.6 | ⬜ Window tabs | Repositories open as native window tabs (⌘T to open another), tab title = repo name | 0.3h |
+| 4.7 | ⬜ Smarter highlighting | Highlighter keeps multi-line comment / string state across lines in a hunk | 0.3h |
+| 4.8 | ⬜ Split-view staging | Stage / unstage / discard hunks and lines from the side-by-side working-copy diff too | 0.5h |
+| 4.9 | ⬜ Merge editor | Conflicted text files: per-conflict "ours / theirs / both" choices with live preview, then mark resolved | 1h |
+
