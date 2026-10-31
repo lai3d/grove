@@ -10,6 +10,7 @@ enum SidebarItem: Hashable {
     case stash(String)
     case worktree(String)
     case submodule(String)
+    case reflog
 }
 
 enum BranchSheet: Identifiable {
@@ -92,6 +93,7 @@ final class RepoModel {
         didSet { sidebarSelectionChanged() }
     }
     var showsWorkingCopy: Bool { sidebarSelection == .workingCopy }
+    var showsReflog: Bool { sidebarSelection == .reflog }
     var selectedStash: Stash? {
         guard case .stash(let id)? = sidebarSelection else { return nil }
         return stashes.first { $0.id == id }
@@ -278,6 +280,7 @@ final class RepoModel {
             worktrees = (try? await w) ?? []
             submodules = (try? await m) ?? []
             hosted = await h
+            if showsReflog { loadReflog() }
         }
     }
 
@@ -437,6 +440,8 @@ final class RepoModel {
             if let ref = refs.first(where: { $0.id == id }) { jump(to: ref.target) }
         case .stash?:
             loadStash()
+        case .reflog?:
+            loadReflog()
         default:
             break
         }
@@ -1143,6 +1148,72 @@ final class RepoModel {
             return ref.name.hasPrefix(prefix) ? String(ref.name.dropFirst(prefix.count)) : nil
         case .tag:
             return nil
+        }
+    }
+
+    // MARK: Reflog
+
+    private(set) var reflog: [ReflogEntry] = []
+    var selectedReflogIndex: Int? {
+        didSet { if oldValue != selectedReflogIndex { loadReflogCommit() } }
+    }
+    private(set) var reflogCommit: Commit?
+    private(set) var reflogFiles: [ChangedFile] = []
+    var reflogFileID: ChangedFile.ID? {
+        didSet { if oldValue != reflogFileID { loadReflogDiff() } }
+    }
+    private(set) var reflogDiff = ""
+
+    func loadReflog() {
+        guard let repo else { return }
+        Task {
+            reflog = (try? await repo.reflog()) ?? []
+            if selectedReflogIndex == nil || !reflog.indices.contains(selectedReflogIndex!) {
+                selectedReflogIndex = reflog.isEmpty ? nil : 0
+            } else {
+                loadReflogCommit()
+            }
+        }
+    }
+
+    private func loadReflogCommit() {
+        guard let repo, let i = selectedReflogIndex, reflog.indices.contains(i) else {
+            reflogCommit = nil
+            reflogFiles = []
+            reflogDiff = ""
+            return
+        }
+        let sha = reflog[i].commitID
+        Task {
+            let c = try? await repo.commit(sha)
+            let files = c.map { c in Task { (try? await repo.changedFiles(in: c)) ?? [] } }
+            let loaded = await files?.value ?? []
+            guard selectedReflogIndex == i else { return }
+            reflogCommit = c
+            reflogFiles = loaded
+            reflogFileID = loaded.first?.id
+            loadReflogDiff()
+        }
+    }
+
+    private func loadReflogDiff() {
+        guard let repo, let c = reflogCommit, let id = reflogFileID, let f = reflogFiles.first(where: { $0.id == id }) else {
+            reflogDiff = ""
+            return
+        }
+        Task {
+            let text = (try? await repo.diff(of: f, in: c)) ?? ""
+            if reflogFileID == id { reflogDiff = text }
+        }
+    }
+
+    var reflogBlobs: BlobPair? {
+        guard let repo, let c = reflogCommit, let id = reflogFileID, let f = reflogFiles.first(where: { $0.id == id }) else { return nil }
+        let parent = c.parents.first, sha = c.id
+        return {
+            async let old: Data? = parent == nil ? nil : await repo.blob("\(parent!):\(f.origPath ?? f.path)")
+            async let new: Data? = await repo.blob("\(sha):\(f.path)")
+            return (await old, await new)
         }
     }
 }

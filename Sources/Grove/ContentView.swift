@@ -97,6 +97,8 @@ struct RepoWindow: View {
                 }
                 if model.showsWorkingCopy {
                     WorkingCopyView(model: model)
+                } else if model.showsReflog {
+                    ReflogView(model: model)
                 } else if let stash = model.selectedStash {
                     StashView(model: model, stash: stash)
                 } else {

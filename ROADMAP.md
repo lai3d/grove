@@ -53,7 +53,7 @@ Estimates are Claude Code session time.
 | # | Item | Notes | Est. |
 |---|---|---|---|
 | 4.1 | ✅ Redo | ⇧⌘Z re-applies an undone git action (each undo registers its inverse) | 0.3h |
-| 4.2 | ⬜ Reflog | Sidebar "Reflog": HEAD's recent positions with the action that moved it; select to inspect, check out or reset to it — the safety net for anything Undo doesn't cover | 0.4h |
+| 4.2 | ✅ Reflog | Sidebar "Reflog": HEAD's recent positions with the action that moved it; select to inspect, check out or reset to it — the safety net for anything Undo doesn't cover | 0.4h |
 | 4.3 | ⬜ Content search | Find commits that added / removed text (`git log -S`) or whose diff matches a regex (`-G`), from the history filter (`s:` / `g:` prefixes) | 0.4h |
 | 4.4 | ⬜ Signatures | Commit detail shows GPG / SSH signature status and signer (verified lazily per selected commit) | 0.3h |
 | 4.5 | ⬜ Git LFS | Detect LFS; mark LFS-tracked files; show pointer diffs as "LFS object a → b (size)"; LFS fetch / pull go through git's hooks | 0.4h |

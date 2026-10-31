@@ -680,6 +680,33 @@ public actor Repository {
         // Builtin fsmonitor needs git ≥ 2.36 on macOS; older gits just ignore the setting.
         _ = try await git.run(["config", "--local", "core.fsmonitor", "true"], in: root)
     }
+
+    // MARK: Reflog
+
+    public nonisolated func reflog(limit: Int = 300) async throws -> [ReflogEntry] {
+        let out = try await git.run(["log", "-g", "-z", "--date=unix", "-n", "\(limit)",
+                                     "--format=%H%x1f%gd%x1f%gs", "HEAD"], in: root, okExitCodes: [0, 128])
+        var entries: [ReflogEntry] = []
+        for record in out.split(separator: 0) {
+            let f = String(decoding: record, as: UTF8.self).split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 3 else { continue }
+            // %gd with --date=unix: "HEAD@{1700000000}"
+            let stamp = f[1].split(separator: "{").last.map { $0.dropLast() }.flatMap { TimeInterval($0) } ?? 0
+            let subject = f[2]
+            let colon = subject.firstIndex(of: ":")
+            let action = colon.map { String(subject[..<$0]) } ?? subject
+            let message = colon.map { String(subject[subject.index(after: $0)...]).trimmingCharacters(in: .whitespaces) } ?? ""
+            entries.append(ReflogEntry(index: entries.count, commitID: f[0].trimmingCharacters(in: .whitespacesAndNewlines),
+                                       date: Date(timeIntervalSince1970: stamp), action: action, message: message))
+        }
+        return entries
+    }
+
+    /// One commit by id (or any revision), parsed like a log record.
+    public nonisolated func commit(_ rev: String) async throws -> Commit? {
+        let out = try await git.run(["log", "-1", "-z", GitParse.logFormat, rev], in: root)
+        return GitParse.commit(out.split(separator: 0).first.map { Data($0) } ?? Data())
+    }
 }
 
 extension GitError {

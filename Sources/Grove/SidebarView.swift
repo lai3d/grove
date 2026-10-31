@@ -18,6 +18,9 @@ struct SidebarView: View {
                     .tag(SidebarItem.workingCopy)
                 Label("History", systemImage: "clock.arrow.circlepath")
                     .tag(SidebarItem.history)
+                Label("Reflog", systemImage: "arrow.uturn.backward.circle")
+                    .tag(SidebarItem.reflog)
+                    .help("Everywhere HEAD has been — recover commits lost to resets, rebases or deleted branches")
             }
             let local = filtered(.branch)
             if !local.isEmpty {

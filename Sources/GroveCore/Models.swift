@@ -150,3 +150,16 @@ public struct Submodule: Sendable, Hashable, Identifiable {
     public let describe: String?
     public var id: String { path }
 }
+
+public struct ReflogEntry: Sendable, Hashable, Identifiable {
+    /// Position in the reflog (0 = current).
+    public let index: Int
+    public let commitID: String
+    public let date: Date
+    /// "commit", "checkout", "reset", "rebase (finish)", "merge feature", "pull"…
+    public let action: String
+    /// The rest of the reflog subject.
+    public let message: String
+    public var id: Int { index }
+    public var selector: String { "HEAD@{\(index)}" }
+}
