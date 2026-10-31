@@ -903,7 +903,7 @@ final class RepoModel {
         guard let um = undoManager else { return }
         um.registerUndo(withTarget: self) { model in
             MainActor.assumeIsolated {
-                Task<Void, Never> { await model.runUndo(action) }
+                _ = Task<Void, Never> { await model.runUndo(action) }
             }
         }
         um.setActionName(title)
