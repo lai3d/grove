@@ -163,3 +163,28 @@ public struct ReflogEntry: Sendable, Hashable, Identifiable {
     public var id: Int { index }
     public var selector: String { "HEAD@{\(index)}" }
 }
+
+public struct SignatureInfo: Sendable, Hashable {
+    public enum Status: Sendable, Hashable {
+        case good, goodUnknownValidity, bad, expired, expiredKey, revoked, cannotCheck, unsigned
+    }
+    public let status: Status
+    /// Signer (GPG uid or SSH principal), when known.
+    public let signer: String?
+    public let key: String?
+
+    public init(code: String, signer: String?, key: String?) {
+        status = switch code {
+        case "G": .good
+        case "U": .goodUnknownValidity
+        case "B": .bad
+        case "X": .expired
+        case "Y": .expiredKey
+        case "R": .revoked
+        case "E": .cannotCheck
+        default: .unsigned
+        }
+        self.signer = signer?.isEmpty == false ? signer : nil
+        self.key = key?.isEmpty == false ? key : nil
+    }
+}

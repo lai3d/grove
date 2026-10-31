@@ -722,6 +722,15 @@ public actor Repository {
         }
         return ids
     }
+
+    // MARK: Signatures
+
+    /// Verifies one commit's GPG / SSH signature (runs gpg or ssh-keygen, so call it lazily).
+    public nonisolated func signature(of commit: String) async -> SignatureInfo {
+        let out = (try? await git.runString(["log", "-1", "--format=%G?%x1f%GS%x1f%GK", commit], in: root)) ?? "N"
+        let f = out.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
+        return SignatureInfo(code: f.first ?? "N", signer: f.count > 1 ? f[1] : nil, key: f.count > 2 ? f[2] : nil)
+    }
 }
 
 extension GitError {

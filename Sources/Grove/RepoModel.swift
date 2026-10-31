@@ -153,6 +153,8 @@ final class RepoModel {
         didSet { if oldValue != selectedCommitID { loadCommitDetail() } }
     }
     private(set) var detail: CommitDetail?
+    /// Signature of the selected commit (verified after the detail loads).
+    private(set) var signature: SignatureInfo?
     var selectedFileID: ChangedFile.ID? {
         didSet { if oldValue != selectedFileID { loadCommitFileDiff() } }
     }
@@ -514,8 +516,11 @@ final class RepoModel {
                 let d = CommitDetail(commit: commit, message: try await message, files: try await files)
                 guard let self, !Task.isCancelled, self.selectedCommitID == commit.id else { return }
                 self.detail = d
+                self.signature = nil
                 self.selectedFileID = d.files.first?.id
                 self.loadCommitFileDiff()
+                let sig = await repo.signature(of: commit.id)
+                if self.selectedCommitID == commit.id { self.signature = sig }
             } catch {
                 if !Task.isCancelled { self?.errorMessage = "\(error)" }
             }

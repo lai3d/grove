@@ -305,6 +305,12 @@ struct CommitDetailPane: View {
                                 meta(d.commit.isMerge ? "Parents" : "Parent",
                                      d.commit.parents.map { String($0.prefix(8)) }.joined(separator: "  "))
                             }
+                            if let sig = model.signature, sig.status != .unsigned {
+                                GridRow {
+                                    Text("Signature").foregroundStyle(.secondary)
+                                    SignatureBadge(signature: sig)
+                                }
+                            }
                         }
                         .font(.callout)
                     }
@@ -466,6 +472,34 @@ struct OperationBanner: View {
             return "Rebasing “\(b ?? branch)” onto \(onto ?? "")\(progress)"
         case .cherryPick: return "Cherry-pick paused"
         case .revert: return "Revert paused"
+        }
+    }
+}
+
+struct SignatureBadge: View {
+    let signature: SignatureInfo
+
+    var body: some View {
+        let (icon, color, text) = describe
+        Label {
+            Text(text).lineLimit(1).truncationMode(.tail)
+        } icon: {
+            Image(systemName: icon).foregroundStyle(color)
+        }
+        .help(signature.key.map { "Key \($0)" } ?? text)
+    }
+
+    private var describe: (String, Color, String) {
+        let who = signature.signer.map { " · \($0)" } ?? ""
+        switch signature.status {
+        case .good: return ("checkmark.seal.fill", .green, "Verified" + who)
+        case .goodUnknownValidity: return ("checkmark.seal", .yellow, "Signed, key not trusted" + who)
+        case .bad: return ("xmark.seal.fill", .red, "Bad signature" + who)
+        case .expired: return ("clock.badge.exclamationmark", .orange, "Signature expired" + who)
+        case .expiredKey: return ("clock.badge.exclamationmark", .orange, "Signed with an expired key" + who)
+        case .revoked: return ("xmark.seal.fill", .red, "Signed with a revoked key" + who)
+        case .cannotCheck: return ("questionmark.diamond", .orange, "Signed — can't verify (key or allowed signers missing)")
+        case .unsigned: return ("seal", .secondary, "Not signed")
         }
     }
 }
