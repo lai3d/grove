@@ -129,3 +129,24 @@ public struct RebaseStep: Sendable, Hashable, Identifiable {
         self.message = message
     }
 }
+
+public struct Worktree: Sendable, Hashable, Identifiable {
+    public let path: String
+    public let head: String?
+    /// Short branch name; nil when detached (or bare).
+    public let branch: String?
+    public let isMain: Bool
+    public let isLocked: Bool
+    public let isPrunable: Bool
+    public var id: String { path }
+}
+
+public struct Submodule: Sendable, Hashable, Identifiable {
+    public enum State: Sendable, Hashable { case upToDate, notInitialized, differentCommit, conflict }
+    public let path: String
+    public let commit: String
+    public let state: State
+    /// `git describe` output git prints in parentheses, if any.
+    public let describe: String?
+    public var id: String { path }
+}

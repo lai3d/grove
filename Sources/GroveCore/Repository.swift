@@ -632,6 +632,34 @@ public actor Repository {
         let hasParent = (try? await git.run(["rev-parse", "-q", "--verify", "\(base)^{commit}"], in: root)) != nil
         _ = try await g.run(["rebase", "-i", "--no-autosquash"] + (hasParent ? [base] : ["--root"]), in: root)
     }
+
+    // MARK: Worktrees & submodules
+
+    public nonisolated func worktrees() async throws -> [Worktree] {
+        GitParse.worktrees(try await git.runString(["worktree", "list", "--porcelain"], in: root))
+    }
+
+    /// Checks out `branch` (or a new branch from `startPoint`) in a new worktree at `path`.
+    public func addWorktree(at path: String, branch: String, createFrom startPoint: String? = nil) async throws {
+        if let startPoint {
+            _ = try await git.run(["worktree", "add", "-b", branch, path, startPoint], in: root)
+        } else {
+            _ = try await git.run(["worktree", "add", path, branch], in: root)
+        }
+    }
+
+    public func removeWorktree(at path: String, force: Bool) async throws {
+        _ = try await git.run(["worktree", "remove"] + (force ? ["--force"] : []) + [path], in: root)
+    }
+
+    public nonisolated func submodules() async throws -> [Submodule] {
+        guard FileManager.default.fileExists(atPath: root.appendingPathComponent(".gitmodules").path) else { return [] }
+        return GitParse.submodules(try await git.runString(["submodule", "status"], in: root))
+    }
+
+    public func updateSubmodule(_ path: String) async throws {
+        _ = try await git.run(["submodule", "update", "--init", "--recursive", "--", path], in: root)
+    }
 }
 
 extension GitError {

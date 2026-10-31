@@ -60,6 +60,7 @@ struct WelcomeView: View {
 struct RepoWindow: View {
     @State private var model: RepoModel
     @Environment(\.undoManager) private var undoManager
+    @Environment(\.openWindow) private var openWindow
 
     private var resetTitle: String {
         guard let r = model.pendingReset else { return "" }
@@ -157,6 +158,22 @@ struct RepoWindow: View {
         .sheet(item: $model.tagSheet) { TagSheet(model: model, commit: $0) }
         .sheet(item: $model.blameTarget) { BlameView(model: model, target: $0) }
         .sheet(item: $model.rebaseBase) { InteractiveRebaseSheet(model: model, base: $0) }
+        .sheet(item: $model.worktreeSheet) { WorktreeSheet(model: model, ref: $0) }
+        .onChange(of: model.openRequest) {
+            if let url = model.openRequest {
+                openWindow(value: url)
+                model.openRequest = nil
+            }
+        }
+        .confirmationDialog("Remove worktree “\(model.pendingRemoveWorktree.map { ($0.path as NSString).lastPathComponent } ?? "")”?",
+                            isPresented: Binding(get: { model.pendingRemoveWorktree != nil }, set: { if !$0 { model.pendingRemoveWorktree = nil } })) {
+            if let w = model.pendingRemoveWorktree {
+                Button("Remove") { Task { await model.removeWorktree(w, force: false) } }
+                Button("Remove Even With Changes", role: .destructive) { Task { await model.removeWorktree(w, force: true) } }
+            }
+        } message: {
+            Text("The folder is deleted; its branch stays.")
+        }
         .confirmationDialog(resetTitle,
                             isPresented: Binding(get: { model.pendingReset != nil }, set: { if !$0 { model.pendingReset = nil } })) {
             if let r = model.pendingReset {

@@ -7,6 +7,8 @@ struct SidebarView: View {
     @State private var showRemotes = true
     @State private var showTags = true
     @State private var showStashes = true
+    @State private var showWorktrees = true
+    @State private var showSubmodules = true
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -44,6 +46,39 @@ struct SidebarView: View {
                     }
                 }
             }
+            let otherWorktrees = model.worktrees.filter { $0.path != model.repo?.root.path }
+            if !otherWorktrees.isEmpty {
+                Section("Worktrees", isExpanded: $showWorktrees) {
+                    ForEach(otherWorktrees) { w in
+                        HStack {
+                            Label((w.path as NSString).lastPathComponent, systemImage: w.isMain ? "house" : "folder.badge.gearshape")
+                                .lineLimit(1)
+                            Spacer()
+                            Text(w.branch ?? "detached").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        .tag(SidebarItem.worktree(w.path))
+                        .help(w.path)
+                    }
+                }
+            }
+            if !model.submodules.isEmpty {
+                Section("Submodules", isExpanded: $showSubmodules) {
+                    ForEach(model.submodules) { sub in
+                        HStack {
+                            Label(sub.path, systemImage: "shippingbox").lineLimit(1)
+                            Spacer()
+                            switch sub.state {
+                            case .notInitialized: Text("not initialized").font(.caption).foregroundStyle(.secondary)
+                            case .differentCommit: Image(systemName: "arrow.triangle.2.circlepath").foregroundStyle(.orange).help("Checked-out commit differs from the one recorded")
+                            case .conflict: Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            case .upToDate: EmptyView()
+                            }
+                        }
+                        .tag(SidebarItem.submodule(sub.path))
+                        .help("\(sub.path) @ \(sub.commit.prefix(8))\(sub.describe.map { " (\($0))" } ?? "")")
+                    }
+                }
+            }
             let tags = filtered(.tag)
             if !tags.isEmpty {
                 Section("Tags", isExpanded: $showTags) {
@@ -71,6 +106,20 @@ struct SidebarView: View {
         }
         .contextMenu(forSelectionType: SidebarItem.self) { items in
             if let ref = ref(in: items) { RefMenu(model: model, ref: ref) }
+            if case .worktree(let path)? = items.first, let w = model.worktrees.first(where: { $0.path == path }) {
+                Button("Open in New Window") { model.openRequest = URL(fileURLWithPath: w.path) }
+                Button("Reveal in Finder") { NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: w.path) }
+                if !w.isMain {
+                    Divider()
+                    Button("Remove Worktree…") { model.pendingRemoveWorktree = w }
+                }
+            }
+            if case .submodule(let path)? = items.first, let sub = model.submodules.first(where: { $0.path == path }) {
+                Button("Open in New Window") { model.open(sub) }.disabled(sub.state == .notInitialized)
+                Button(sub.state == .notInitialized ? "Initialize" : "Update to Recorded Commit") {
+                    Task { await model.updateSubmodule(sub) }
+                }
+            }
             if case .stash(let id)? = items.first, let stash = model.stashes.first(where: { $0.id == id }) {
                 Button("Apply") { Task { await model.applyStash(stash, pop: false) } }
                 Button("Pop") { Task { await model.applyStash(stash, pop: true) } }
@@ -78,7 +127,13 @@ struct SidebarView: View {
                 Button("Drop…") { model.pendingDropStash = stash }
             }
         } primaryAction: { items in
-            if let ref = ref(in: items) { Task { await model.checkout(ref) } }
+            switch items.first {
+            case .worktree(let path)?: model.openRequest = URL(fileURLWithPath: path)
+            case .submodule(let path)?:
+                if let sub = model.submodules.first(where: { $0.path == path }) { model.open(sub) }
+            default:
+                if let ref = ref(in: items) { Task { await model.checkout(ref) } }
+            }
         }
         .onAppear {
             // Expand small remotes by default; big ones stay collapsed.
@@ -191,6 +246,9 @@ struct RefMenu: View {
             Button("Rebase “\(cur)” onto “\(ref.name)”") { Task { await model.rebase(onto: ref.fullName) } }
             Divider()
         }
+        if !current {
+            Button("Check Out in New Worktree…") { model.worktreeSheet = ref }
+        }
         Button("New Branch from “\(ref.name)”…") {
             model.branchSheet = .create(startPoint: ref.fullName, label: ref.name)
         }
@@ -275,5 +333,49 @@ struct BranchNameSheet: View {
             working = false
             if let error { problem = error } else { dismiss() }
         }
+    }
+}
+
+struct WorktreeSheet: View {
+    let model: RepoModel
+    let ref: Ref
+    @State private var path = ""
+    @State private var error: String?
+    @State private var working = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New Worktree").font(.headline)
+            Text("Check out “\(ref.name)” in its own folder, so you can work on it alongside the current branch.")
+                .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                TextField("Folder", text: $path).textFieldStyle(.roundedBorder).autocorrectionDisabled()
+                Button("Choose…") {
+                    let panel = NSSavePanel()
+                    panel.nameFieldStringValue = (path as NSString).lastPathComponent
+                    panel.directoryURL = URL(fileURLWithPath: (path as NSString).deletingLastPathComponent)
+                    if panel.runModal() == .OK, let url = panel.url { path = url.path }
+                }
+            }
+            if let error {
+                Text(error).font(.callout).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Create and Open") {
+                    working = true
+                    Task {
+                        if let e = await model.addWorktree(for: ref, at: path) { error = e; working = false } else { dismiss() }
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(path.isEmpty || working || FileManager.default.fileExists(atPath: path))
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+        .onAppear { path = model.suggestedWorktreePath(for: ref.name) }
     }
 }

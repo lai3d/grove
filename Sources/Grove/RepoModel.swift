@@ -7,6 +7,8 @@ enum SidebarItem: Hashable {
     case history
     case ref(String)
     case stash(String)
+    case worktree(String)
+    case submodule(String)
 }
 
 enum BranchSheet: Identifiable {
@@ -118,6 +120,14 @@ final class RepoModel {
     var showPalette = false
     var blameTarget: BlameTarget?
     var rebaseBase: Commit?
+
+    // Worktrees & submodules
+    private(set) var worktrees: [Worktree] = []
+    private(set) var submodules: [Submodule] = []
+    var worktreeSheet: Ref?
+    var pendingRemoveWorktree: Worktree?
+    /// Set to ask the window to open another repository window.
+    var openRequest: URL?
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 
@@ -251,6 +261,12 @@ final class RepoModel {
     func refresh() async {
         await refreshRefsAndStatus()
         reloadLog()
+        if let repo {
+            async let w = repo.worktrees()
+            async let m = repo.submodules()
+            worktrees = (try? await w) ?? []
+            submodules = (try? await m) ?? []
+        }
     }
 
     private func filesChanged(_ change: RepositoryWatcher.Change) async {
@@ -982,5 +998,53 @@ final class RepoModel {
             if staged { return (await repo.blob("HEAD:\(orig)"), await repo.blob(":\(path)")) }
             return (await repo.blob(":\(path)"), repo.workingFile(path))
         }
+    }
+
+    // MARK: Worktrees & submodules
+
+    /// Suggested folder for a new worktree: next to this one, "<repo>-<branch>".
+    func suggestedWorktreePath(for branch: String) -> String {
+        guard let repo else { return "" }
+        let safe = branch.replacingOccurrences(of: "/", with: "-")
+        return repo.root.deletingLastPathComponent().appendingPathComponent("\(repo.name)-\(safe)").path
+    }
+
+    func addWorktree(for ref: Ref, at path: String) async -> String? {
+        guard let repo else { return nil }
+        do {
+            switch ref.kind {
+            case .branch:
+                try await repo.addWorktree(at: path, branch: ref.name)
+            case .remote:
+                let local = ref.name.split(separator: "/", maxSplits: 1).last.map(String.init) ?? ref.name
+                if refs.contains(where: { $0.kind == .branch && $0.name == local }) {
+                    try await repo.addWorktree(at: path, branch: local)
+                } else {
+                    try await repo.addWorktree(at: path, branch: local, createFrom: ref.fullName)
+                }
+            case .tag:
+                try await repo.addWorktree(at: path, branch: ref.name.replacingOccurrences(of: "/", with: "-"), createFrom: ref.fullName)
+            }
+        } catch {
+            return "\(error)"
+        }
+        await refresh()
+        openRequest = URL(fileURLWithPath: path)
+        return nil
+    }
+
+    func removeWorktree(_ w: Worktree, force: Bool) async {
+        await write { try await $0.removeWorktree(at: w.path, force: force) }
+        await refresh()
+    }
+
+    func updateSubmodule(_ s: Submodule) async {
+        await write { try await $0.updateSubmodule(s.path) }
+        await refresh()
+    }
+
+    func open(_ s: Submodule) {
+        guard let repo, s.state != .notInitialized else { return }
+        openRequest = repo.root.appendingPathComponent(s.path)
     }
 }

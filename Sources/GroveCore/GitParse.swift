@@ -146,4 +146,47 @@ public enum GitParse {
         }
         return out
     }
+
+    /// `git worktree list --porcelain`.
+    public static func worktrees(_ text: String) -> [Worktree] {
+        var out: [Worktree] = []
+        for block in text.components(separatedBy: "\n\n") {
+            var path: String?, head: String?, branch: String?
+            var locked = false, prunable = false
+            for line in block.split(separator: "\n") {
+                if line.hasPrefix("worktree ") { path = String(line.dropFirst(9)) }
+                else if line.hasPrefix("HEAD ") { head = String(line.dropFirst(5)) }
+                else if line.hasPrefix("branch ") { branch = String(line.dropFirst(7)).replacingOccurrences(of: "refs/heads/", with: "") }
+                else if line.hasPrefix("locked") { locked = true }
+                else if line.hasPrefix("prunable") { prunable = true }
+            }
+            if let path {
+                out.append(Worktree(path: path, head: head, branch: branch, isMain: out.isEmpty, isLocked: locked, isPrunable: prunable))
+            }
+        }
+        return out
+    }
+
+    /// `git submodule status`: "<state><sha> <path> (<describe>)".
+    public static func submodules(_ text: String) -> [Submodule] {
+        text.split(separator: "\n").compactMap { raw in
+            guard let flag = raw.first else { return nil }
+            let rest = raw.dropFirst()
+            let parts = rest.split(separator: " ", maxSplits: 1)
+            guard parts.count == 2 else { return nil }
+            var pathPart = String(parts[1])
+            var describe: String?
+            if pathPart.hasSuffix(")"), let open = pathPart.range(of: " (", options: .backwards) {
+                describe = String(pathPart[open.upperBound..<pathPart.index(before: pathPart.endIndex)])
+                pathPart = String(pathPart[..<open.lowerBound])
+            }
+            let state: Submodule.State = switch flag {
+            case "-": .notInitialized
+            case "+": .differentCommit
+            case "U": .conflict
+            default: .upToDate
+            }
+            return Submodule(path: pathPart, commit: String(parts[0]), state: state, describe: describe)
+        }
+    }
 }
