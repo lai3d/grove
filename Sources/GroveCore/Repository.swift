@@ -348,6 +348,85 @@ public actor Repository {
     public func reset(_ mode: ResetMode, to commit: String) async throws {
         _ = try await git.run(["reset", "-q", "--\(mode.rawValue)", commit], in: root)
     }
+
+    // MARK: Merge / rebase
+
+    /// Conflicts surface as a thrown `GitError` with the repository left in `operation()`.
+    public func merge(_ ref: String, noFastForward: Bool = false) async throws {
+        var args = ["merge", "--no-edit"]
+        if noFastForward { args.append("--no-ff") }
+        args.append(ref)
+        _ = try await git.run(args, in: root)
+    }
+
+    public func rebase(onto ref: String) async throws {
+        _ = try await git.run(["rebase", ref], in: root)
+    }
+
+    /// The paused operation, read from the git dir (no process spawn).
+    public nonisolated func operation() -> RepoOperation? {
+        let fm = FileManager.default
+        func exists(_ name: String) -> Bool { fm.fileExists(atPath: gitDir.appendingPathComponent(name).path) }
+        func read(_ name: String) -> String? {
+            (try? String(contentsOf: gitDir.appendingPathComponent(name), encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        for dir in ["rebase-merge", "rebase-apply"] where exists(dir) {
+            let branch = read("\(dir)/head-name").map { $0.replacingOccurrences(of: "refs/heads/", with: "") }
+            let onto = read("\(dir)/onto").map { String($0.prefix(8)) }
+            let step = read(dir == "rebase-merge" ? "\(dir)/msgnum" : "\(dir)/next").flatMap { Int($0) }
+            let total = read(dir == "rebase-merge" ? "\(dir)/end" : "\(dir)/last").flatMap { Int($0) }
+            return .rebase(branch: branch, onto: onto, step: step, total: total)
+        }
+        if exists("MERGE_HEAD") {
+            // MERGE_MSG starts with "Merge branch 'x'" / "Merge commit 'y'".
+            let msg = read("MERGE_MSG")?.split(separator: "\n").first.map(String.init)
+            let from = msg.flatMap { m -> String? in
+                guard let a = m.firstIndex(of: "'"), let b = m[m.index(after: a)...].firstIndex(of: "'") else { return nil }
+                return String(m[m.index(after: a)..<b])
+            }
+            return .merge(from: from)
+        }
+        if exists("CHERRY_PICK_HEAD") { return .cherryPick }
+        if exists("REVERT_HEAD") { return .revert }
+        return nil
+    }
+
+    private func sequencerCommand(_ op: RepoOperation) -> String {
+        op.name
+    }
+
+    /// Continues with the default commit message (no editor).
+    public func continueOperation(_ op: RepoOperation) async throws {
+        var g = git
+        g.environment["GIT_EDITOR"] = "true"
+        _ = try await g.run([sequencerCommand(op), "--continue"], in: root)
+    }
+
+    public func abortOperation(_ op: RepoOperation) async throws {
+        _ = try await git.run([sequencerCommand(op), "--abort"], in: root)
+    }
+
+    public func skipOperation(_ op: RepoOperation) async throws {
+        _ = try await git.run([sequencerCommand(op), "--skip"], in: root)
+    }
+
+    public enum ConflictSide: Sendable { case ours, theirs }
+
+    /// Resolves a conflicted file by taking one side entirely (a side that deleted
+    /// the file resolves to a deletion), then stages the result.
+    public func resolve(_ path: String, taking side: ConflictSide) async throws {
+        do {
+            _ = try await git.run(["checkout", side == .ours ? "--ours" : "--theirs", "--", path], in: root)
+            _ = try await git.run(["add", "--", path], in: root)
+        } catch let e as GitError where e.stderr.contains("does not have") {
+            _ = try await git.run(["rm", "-q", "--", path], in: root)
+        }
+    }
+
+    public func markResolved(_ path: String) async throws {
+        _ = try await git.run(["add", "--", path], in: root)
+    }
 }
 
 extension GitError {

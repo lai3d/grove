@@ -8,6 +8,9 @@ struct WorkingCopyView: View {
         HSplitView {
             VStack(spacing: 0) {
                 List(selection: $model.selectedChangeID) {
+                    if !model.conflictEntries.isEmpty {
+                        conflictSection
+                    }
                     section("Staged", entries: model.stagedEntries, action: "Unstage", icon: "minus.circle") {
                         await model.unstage($0)
                     }
@@ -69,6 +72,43 @@ struct WorkingCopyView: View {
                         .font(.caption)
                 }
             }
+        }
+    }
+
+    /// During a rebase "ours" is the branch being rebased onto and "theirs" is your commit.
+    private var sideNames: (ours: String, theirs: String) {
+        if case .rebase? = model.operation { return ("Upstream", "Your Commit") }
+        return ("Ours", "Theirs")
+    }
+
+    private var conflictSection: some View {
+        Section {
+            ForEach(model.conflictEntries) { e in
+                HStack {
+                    FileRow(letter: "U", path: e.change.path)
+                    Spacer()
+                    Menu {
+                        Button("Take \(sideNames.ours)") { Task { await model.resolve(e, taking: .ours) } }
+                        Button("Take \(sideNames.theirs)") { Task { await model.resolve(e, taking: .theirs) } }
+                        Divider()
+                        Button("Mark as Resolved") { Task { await model.markResolved(e) } }
+                    } label: {
+                        Image(systemName: "checkmark.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Resolve")
+                }
+                .contextMenu {
+                    Button("Take \(sideNames.ours)") { Task { await model.resolve(e, taking: .ours) } }
+                    Button("Take \(sideNames.theirs)") { Task { await model.resolve(e, taking: .theirs) } }
+                    Divider()
+                    Button("Mark as Resolved (stage as is)") { Task { await model.markResolved(e) } }
+                }
+            }
+        } header: {
+            Text("Conflicts (\(model.conflictEntries.count))").foregroundStyle(.orange)
         }
     }
 

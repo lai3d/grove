@@ -207,7 +207,14 @@ final class RepoModel {
 
     var title: String { repo?.name ?? url.lastPathComponent }
     var stagedEntries: [ChangeEntry] { changes.filter(\.isStaged).map { ChangeEntry(change: $0, staged: true) } }
-    var unstagedEntries: [ChangeEntry] { changes.filter(\.isUnstaged).map { ChangeEntry(change: $0, staged: false) } }
+    var unstagedEntries: [ChangeEntry] {
+        changes.filter { $0.isUnstaged && $0.kind != .unmerged }.map { ChangeEntry(change: $0, staged: false) }
+    }
+    var conflictEntries: [ChangeEntry] {
+        changes.filter { $0.kind == .unmerged }.map { ChangeEntry(change: $0, staged: false) }
+    }
+    /// Paused merge / rebase / cherry-pick / revert.
+    private(set) var operation: RepoOperation?
 
     func load() async {
         guard repo == nil else { return }
@@ -261,7 +268,8 @@ final class RepoModel {
             self.refs = try await refs
             self.currentBranch = await branch
             self.changes = try await status
-            let all = stagedEntries + unstagedEntries
+            self.operation = repo.operation()
+            let all = stagedEntries + unstagedEntries + conflictEntries
             if let id = selectedChangeID, !all.contains(where: { $0.id == id }) {
                 // Fully staged / unstaged: follow the file to the other list.
                 let flipped = (id.hasPrefix("S:") ? "U:" : "S:") + id.dropFirst(2)
@@ -434,7 +442,7 @@ final class RepoModel {
 
     private func entry(for id: ChangeEntry.ID?) -> ChangeEntry? {
         guard let id else { return nil }
-        return (stagedEntries + unstagedEntries).first { $0.id == id }
+        return (stagedEntries + unstagedEntries + conflictEntries).first { $0.id == id }
     }
 
     private func loadWorkingDiff() {
@@ -724,9 +732,55 @@ final class RepoModel {
 
     // MARK: Commit operations
 
-    func cherryPick(_ commit: Commit) async { await perform { try await $0.cherryPick(commit) } }
+    func cherryPick(_ commit: Commit) async { await performStepping { try await $0.cherryPick(commit) } }
 
-    func revert(_ commit: Commit) async { await perform { try await $0.revert(commit) } }
+    func revert(_ commit: Commit) async { await performStepping { try await $0.revert(commit) } }
+
+    // MARK: Merge / rebase
+
+    func merge(_ ref: String, noFastForward: Bool = false) async {
+        await performStepping { try await $0.merge(ref, noFastForward: noFastForward) }
+    }
+
+    func rebase(onto ref: String) async { await performStepping { try await $0.rebase(onto: ref) } }
+
+    func continueOperation() async {
+        guard let op = operation else { return }
+        await performStepping { try await $0.continueOperation(op) }
+    }
+
+    func abortOperation() async {
+        guard let op = operation else { return }
+        await perform { try await $0.abortOperation(op) }
+    }
+
+    func skipOperation() async {
+        guard let op = operation else { return }
+        await performStepping { try await $0.skipOperation(op) }
+    }
+
+    func resolve(_ entry: ChangeEntry, taking side: Repository.ConflictSide) async {
+        await write { try await $0.resolve(entry.change.path, taking: side) }
+    }
+
+    func markResolved(_ entry: ChangeEntry) async {
+        await write { try await $0.markResolved(entry.change.path) }
+    }
+
+    /// Like `perform`, but an operation that stops on conflicts is not an error:
+    /// show the conflicts instead of an alert.
+    private func performStepping(_ op: (Repository) async throws -> Void) async {
+        guard let repo, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await op(repo)
+        } catch {
+            if repo.operation() == nil { errorMessage = "\(error)" }
+        }
+        await refresh()
+        if operation != nil, !conflictEntries.isEmpty { sidebarSelection = .workingCopy }
+    }
 
     func reset(_ mode: Repository.ResetMode, to commit: Commit) async {
         await perform { try await $0.reset(mode, to: commit.id) }

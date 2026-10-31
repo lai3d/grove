@@ -185,6 +185,12 @@ struct RefMenu: View {
         case .tag:
             Button("Check Out (Detached)") { Task { await model.checkout(ref) } }
         }
+        if !current, let cur = model.currentBranch, model.operation == nil {
+            Divider()
+            Button("Merge “\(ref.name)” into “\(cur)”") { Task { await model.merge(ref.fullName) } }
+            Button("Rebase “\(cur)” onto “\(ref.name)”") { Task { await model.rebase(onto: ref.fullName) } }
+            Divider()
+        }
         Button("New Branch from “\(ref.name)”…") {
             model.branchSheet = .create(startPoint: ref.fullName, label: ref.name)
         }

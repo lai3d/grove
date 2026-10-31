@@ -88,12 +88,17 @@ struct RepoWindow: View {
             SidebarView(model: model)
                 .navigationSplitViewColumnWidth(min: 180, ideal: 230, max: 360)
         } detail: {
-            if model.showsWorkingCopy {
-                WorkingCopyView(model: model)
-            } else if let stash = model.selectedStash {
-                StashView(model: model, stash: stash)
-            } else {
-                HistoryView(model: model)
+            VStack(spacing: 0) {
+                if let op = model.operation {
+                    OperationBanner(model: model, operation: op)
+                }
+                if model.showsWorkingCopy {
+                    WorkingCopyView(model: model)
+                } else if let stash = model.selectedStash {
+                    StashView(model: model, stash: stash)
+                } else {
+                    HistoryView(model: model)
+                }
             }
         }
         .navigationTitle(model.title)
@@ -358,5 +363,49 @@ struct HistoryFilterBar: View {
         .background(.bar)
         .overlay(alignment: .bottom) { Divider() }
         .onChange(of: model.focusFilterToken) { focused = true }
+    }
+}
+
+struct OperationBanner: View {
+    let model: RepoModel
+    let operation: RepoOperation
+
+    var body: some View {
+        let conflicts = model.conflictEntries.count
+        HStack(spacing: 10) {
+            Image(systemName: conflicts > 0 ? "exclamationmark.triangle.fill" : "arrow.triangle.merge")
+                .foregroundStyle(conflicts > 0 ? .orange : .accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).fontWeight(.semibold)
+                Text(conflicts > 0 ? "\(conflicts) conflicted file\(conflicts == 1 ? "" : "s") — resolve, then Continue"
+                                   : "No conflicts left — Continue to finish")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("Abort", role: .destructive) { Task { await model.abortOperation() } }
+            if operation.canSkip {
+                Button("Skip") { Task { await model.skipOperation() } }
+            }
+            Button("Continue") { Task { await model.continueOperation() } }
+                .buttonStyle(.borderedProminent)
+                .disabled(conflicts > 0)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.orange.opacity(0.12))
+        .overlay(alignment: .bottom) { Divider() }
+    }
+
+    private var title: String {
+        let branch = model.currentBranch ?? "HEAD"
+        switch operation {
+        case .merge(let from): return "Merging \(from.map { "“\($0)”" } ?? "") into “\(branch)”"
+        case .rebase(let b, let onto, let step, let total):
+            let progress = (step != nil && total != nil) ? " — commit \(step!) of \(total!)" : ""
+            return "Rebasing “\(b ?? branch)” onto \(onto ?? "")\(progress)"
+        case .cherryPick: return "Cherry-pick paused"
+        case .revert: return "Revert paused"
+        }
     }
 }

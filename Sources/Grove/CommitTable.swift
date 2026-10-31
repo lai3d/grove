@@ -152,6 +152,10 @@ struct CommitTable: NSViewRepresentable {
             menu.addItem(.separator())
             item(branch.map { "Cherry-Pick onto “\($0)”" } ?? "Cherry-Pick") { Task { await model.cherryPick(commit) } }
             item("Revert Commit") { Task { await model.revert(commit) } }
+            if let branch, model.operation == nil {
+                item("Merge into “\(branch)”") { Task { await model.merge(commit.id) } }
+                item("Rebase “\(branch)” onto Here") { Task { await model.rebase(onto: commit.id) } }
+            }
             let reset = NSMenuItem(title: branch.map { "Reset “\($0)” to Here" } ?? "Reset HEAD to Here", action: nil, keyEquivalent: "")
             let sub = NSMenu()
             for (mode, title) in [(Repository.ResetMode.soft, "Soft — keep changes staged"),

@@ -85,3 +85,27 @@ public struct Stash: Sendable, Hashable, Identifiable {
     public let message: String
     public let date: Date
 }
+
+/// A multi-step operation git has paused (usually on conflicts).
+public enum RepoOperation: Sendable, Hashable {
+    case merge(from: String?)
+    case rebase(branch: String?, onto: String?, step: Int?, total: Int?)
+    case cherryPick
+    case revert
+
+    public var name: String {
+        switch self {
+        case .merge: "merge"
+        case .rebase: "rebase"
+        case .cherryPick: "cherry-pick"
+        case .revert: "revert"
+        }
+    }
+
+    public var canSkip: Bool {
+        switch self {
+        case .merge: false
+        default: true
+        }
+    }
+}
