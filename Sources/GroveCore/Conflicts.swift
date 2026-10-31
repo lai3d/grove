@@ -115,3 +115,53 @@ extension Repository {
         try await markResolved(path)
     }
 }
+
+/// State behind the merge editor: which side was picked for each conflict, and the result.
+/// Lives in Core so the editor's behaviour is testable without driving the UI.
+public struct MergeSession: Sendable, Hashable {
+    public enum LoadError: Error, Sendable, Hashable { case notText, noMarkers }
+
+    public let path: String
+    public let file: ConflictFile
+    public private(set) var choices: [Int: ConflictFile.Choice] = [:]
+
+    public init(path: String, file: ConflictFile) {
+        self.path = path
+        self.file = file
+    }
+
+    /// Parses a conflicted working-tree file's raw bytes.
+    public static func load(path: String, data: Data?) -> Result<MergeSession, LoadError> {
+        guard let data, let text = String(data: data, encoding: .utf8) else { return .failure(.notText) }
+        guard let file = ConflictFile(text) else { return .failure(.noMarkers) }
+        return .success(MergeSession(path: path, file: file))
+    }
+
+    public var conflictCount: Int { file.conflicts.count }
+    public var resolvedCount: Int { choices.count }
+    public var isComplete: Bool { resolvedCount == conflictCount }
+    public var result: String { file.resolved(choices) }
+
+    public func choice(_ k: Int) -> ConflictFile.Choice? { choices[k] }
+
+    /// Picking the current choice again clears it (the buttons act as a toggle group).
+    public mutating func toggle(_ k: Int, _ choice: ConflictFile.Choice) {
+        guard file.conflicts.indices.contains(k) else { return }
+        if choice == .base && file.conflicts[k].base == nil { return }
+        choices[k] = choices[k] == choice ? nil : choice
+    }
+
+    /// Applies one choice to every conflict (skipping `.base` where there's no ancestor).
+    public mutating func chooseAll(_ choice: ConflictFile.Choice) {
+        for k in file.conflicts.indices { if choice != .base || file.conflicts[k].base != nil { choices[k] = choice } }
+    }
+
+    public func includesOurs(_ k: Int) -> Bool { [.ours, .oursThenTheirs, .theirsThenOurs].contains(choices[k]) }
+    public func includesTheirs(_ k: Int) -> Bool { [.theirs, .oursThenTheirs, .theirsThenOurs].contains(choices[k]) }
+
+    /// Display names: during a rebase "ours" is the upstream being rebased onto, "theirs" your commit.
+    public static func sideNames(for operation: RepoOperation?) -> (ours: String, theirs: String) {
+        if case .rebase? = operation { return ("Upstream", "Your Commit") }
+        return ("Ours", "Theirs")
+    }
+}

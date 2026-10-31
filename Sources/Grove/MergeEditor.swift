@@ -10,34 +10,30 @@ struct MergeEditorTarget: Identifiable, Hashable {
 struct MergeEditorSheet: View {
     let model: RepoModel
     let target: MergeEditorTarget
-    @State private var file: ConflictFile?
+    @State private var session: MergeSession?
     @State private var loadError: String?
-    @State private var choices: [Int: ConflictFile.Choice] = [:]
     @State private var saving = false
     @Environment(\.dismiss) private var dismiss
 
     /// During a rebase "ours" is the branch being rebased onto, "theirs" your commit.
-    private var names: (ours: String, theirs: String) {
-        if case .rebase? = model.operation { return ("Upstream", "Your Commit") }
-        return ("Ours", "Theirs")
-    }
+    private var names: (ours: String, theirs: String) { MergeSession.sideNames(for: model.operation) }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
-            if let file {
+            if let session {
                 HSplitView {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 14) {
-                            ForEach(Array(file.conflicts.enumerated()), id: \.offset) { k, c in
+                            ForEach(Array(session.file.conflicts.enumerated()), id: \.offset) { k, c in
                                 card(k, c)
                             }
                         }
                         .padding(14)
                     }
                     .frame(minWidth: 520)
-                    preview(file).frame(minWidth: 280, idealWidth: 360)
+                    preview(session).frame(minWidth: 280, idealWidth: 360)
                 }
             } else {
                 ContentUnavailableView("Can't Open in the Merge Editor", systemImage: "doc.questionmark",
@@ -52,16 +48,21 @@ struct MergeEditorSheet: View {
         HStack {
             Image(systemName: "arrow.triangle.merge")
             Text(target.path).font(.headline).lineLimit(1).truncationMode(.middle)
-            if let file {
-                Text("\(choices.count) of \(file.conflicts.count) conflicts resolved")
-                    .font(.callout).foregroundStyle(choices.count == file.conflicts.count ? .green : .secondary)
+            if let session {
+                Text("\(session.resolvedCount) of \(session.conflictCount) conflicts resolved")
+                    .font(.callout).foregroundStyle(session.isComplete ? .green : .secondary)
+                Menu("All") {
+                    Button("Take \(names.ours) Everywhere") { self.session?.chooseAll(.ours) }
+                    Button("Take \(names.theirs) Everywhere") { self.session?.chooseAll(.theirs) }
+                }
+                .menuStyle(.borderlessButton).fixedSize()
             }
             Spacer()
             Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
             Button("Save & Mark Resolved") { save() }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(file == nil || choices.count != file!.conflicts.count || saving)
+                .disabled(session?.isComplete != true || saving)
         }
         .padding(10)
         .background(.bar)
@@ -72,7 +73,7 @@ struct MergeEditorSheet: View {
             HStack {
                 Text("Conflict \(k + 1)").font(.subheadline.weight(.semibold)).fixedSize()
                 Spacer()
-                if choices[k] == nil {
+                if session?.choice(k) == nil {
                     Text("Choose a side").font(.caption).foregroundStyle(.orange)
                 } else {
                     Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
@@ -87,8 +88,8 @@ struct MergeEditorSheet: View {
             }
             .controlSize(.small)
             HStack(alignment: .top, spacing: 8) {
-                side("\(names.ours) — \(c.oursLabel)", c.ours, .blue, active: [.ours, .oursThenTheirs, .theirsThenOurs].contains(choices[k]))
-                side("\(names.theirs) — \(c.theirsLabel)", c.theirs, .purple, active: [.theirs, .oursThenTheirs, .theirsThenOurs].contains(choices[k]))
+                side("\(names.ours) — \(c.oursLabel)", c.ours, .blue, active: session?.includesOurs(k) == true)
+                side("\(names.theirs) — \(c.theirsLabel)", c.theirs, .purple, active: session?.includesTheirs(k) == true)
             }
             if let base = c.base {
                 DisclosureGroup("Common ancestor") {
@@ -99,15 +100,15 @@ struct MergeEditorSheet: View {
         }
         .padding(10)
         .background(RoundedRectangle(cornerRadius: 10).fill(.background))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(choices[k] == nil ? Color.orange.opacity(0.6) : Color.green.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(session?.choice(k) == nil ? Color.orange.opacity(0.6) : Color.green.opacity(0.5)))
     }
 
     @ViewBuilder
     private func choiceButton(_ k: Int, _ choice: ConflictFile.Choice, _ title: String) -> some View {
-        if choices[k] == choice {
-            Button(title) { choices[k] = nil }.buttonStyle(.borderedProminent)
+        if session?.choice(k) == choice {
+            Button(title) { session?.toggle(k, choice) }.buttonStyle(.borderedProminent)
         } else {
-            Button(title) { choices[k] = choice }.buttonStyle(.bordered)
+            Button(title) { session?.toggle(k, choice) }.buttonStyle(.bordered)
         }
     }
 
@@ -131,12 +132,12 @@ struct MergeEditorSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func preview(_ file: ConflictFile) -> some View {
+    private func preview(_ session: MergeSession) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Result").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(8)
             Divider()
             ScrollView {
-                Text(file.resolved(choices))
+                Text(session.result)
                     .font(.system(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .padding(8)
@@ -148,23 +149,18 @@ struct MergeEditorSheet: View {
 
     private func load() {
         guard let repo = model.repo else { return }
-        guard let data = repo.workingFile(target.path), let text = String(data: data, encoding: .utf8) else {
-            loadError = "The file isn't UTF-8 text. Use Take \(names.ours) / Take \(names.theirs) instead."
-            return
+        switch MergeSession.load(path: target.path, data: repo.workingFile(target.path)) {
+        case .success(let s): session = s
+        case .failure(.notText): loadError = "The file isn't UTF-8 text. Use Take \(names.ours) / Take \(names.theirs) instead."
+        case .failure(.noMarkers): loadError = "No conflict markers found — the file may already be edited. Stage it with Mark as Resolved."
         }
-        guard let f = ConflictFile(text) else {
-            loadError = "No conflict markers found — the file may already be edited. Stage it with Mark as Resolved."
-            return
-        }
-        file = f
     }
 
     private func save() {
-        guard let file else { return }
+        guard let session else { return }
         saving = true
-        let text = file.resolved(choices)
         Task {
-            await model.saveResolution(target.path, text: text)
+            await model.saveResolution(session.path, text: session.result)
             dismiss()
         }
     }

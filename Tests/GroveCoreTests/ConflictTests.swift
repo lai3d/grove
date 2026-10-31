@@ -72,4 +72,35 @@ import Testing
         let merged = try String(contentsOf: dir.appendingPathComponent("f.txt"), encoding: .utf8)
         #expect(merged == "one\nTWO from main\nTWO from feature\nthree\n")
     }
+
+    @Test func mergeSessionToggleAndComplete() throws {
+        var m = try MergeSession.load(path: "f", data: Data(Self.twoWay.utf8)).get()
+        #expect(m.conflictCount == 2 && m.resolvedCount == 0 && !m.isComplete)
+        m.toggle(0, .ours)
+        #expect(m.choice(0) == .ours && m.includesOurs(0) && !m.includesTheirs(0))
+        m.toggle(0, .ours)  // same button again clears it
+        #expect(m.choice(0) == nil)
+        m.toggle(0, .theirs)
+        m.toggle(0, .oursThenTheirs)  // another button replaces it
+        #expect(m.choice(0) == .oursThenTheirs && m.includesOurs(0) && m.includesTheirs(0))
+        m.toggle(1, .base)  // no ancestor in a two-way conflict
+        m.toggle(7, .ours)  // out of range
+        #expect(m.resolvedCount == 1 && !m.isComplete)
+        m.toggle(1, .theirs)
+        #expect(m.isComplete)
+        #expect(m.result == "header\nours 1\nours 2\ntheirs 1\nmiddle\nb\nfooter\n")
+        m.chooseAll(.ours)
+        #expect(m.result == "header\nours 1\nours 2\nmiddle\na\nfooter\n")
+        m.chooseAll(.base)  // nothing has a base: choices stay
+        #expect(m.choice(0) == .ours)
+    }
+
+    @Test func mergeSessionLoadErrors() {
+        #expect(MergeSession.load(path: "f", data: nil) == .failure(.notText))
+        #expect(MergeSession.load(path: "f", data: Data([0xff, 0xfe, 0x00])) == .failure(.notText))
+        #expect(MergeSession.load(path: "f", data: Data("clean\n".utf8)) == .failure(.noMarkers))
+        #expect(MergeSession.sideNames(for: .rebase(branch: nil, onto: nil, step: nil, total: nil)) == ("Upstream", "Your Commit"))
+        #expect(MergeSession.sideNames(for: .merge(from: "x")) == ("Ours", "Theirs"))
+        #expect(MergeSession.sideNames(for: nil) == ("Ours", "Theirs"))
+    }
 }
