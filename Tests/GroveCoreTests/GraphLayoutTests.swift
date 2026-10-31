@@ -63,3 +63,43 @@ import Testing
         #expect(pairs(m.bottom) == [[0, 0], [0, 1], [0, 2]] && m.width == 3)
     }
 }
+
+@Suite struct GraphMainlineTests {
+    private func pairs(_ s: [GraphSegment]) -> Set<[Int]> { Set(s.map { [$0.from, $0.to] }) }
+
+    @Test func mainlineIsNotPushedRightBySideBranch() {
+        // m2 -> m1 -> m0 on main; f1 (tip, appears first) branches from m0 too... and
+        // s1 (shown between m2 and m1) is a side tip whose parent m0 is awaited to the right.
+        var g = GraphLayout()
+        let m2 = g.add(id: "m2", parents: ["m1"])
+        let s1 = g.add(id: "s1", parents: ["m0"])
+        let m1 = g.add(id: "m1", parents: ["m0"])
+        let m0 = g.add(id: "m0", parents: [])
+        #expect(m2.lane == 0 && s1.lane == 1)
+        #expect(m1.lane == 0)
+        // m1 keeps lane 0 and pulls the side lane in instead of jumping right.
+        #expect(pairs(m1.bottom) == [[0, 0], [1, 0]])
+        #expect(m0.lane == 0 && pairs(m0.top) == [[0, 0]])
+    }
+
+    @Test func headPinnedToLaneZeroEvenIfAnotherTipComesFirst() {
+        var g = GraphLayout(mainline: "h")
+        let other = g.add(id: "x", parents: ["base"])
+        let head = g.add(id: "h", parents: ["base"])
+        let base = g.add(id: "base", parents: [])
+        #expect(other.lane == 1)
+        // Reserved lane 0 is not drawn before HEAD is reached.
+        #expect(!other.top.contains { $0.from == 0 } && !other.bottom.contains { $0.from == 0 || $0.to == 0 })
+        #expect(head.lane == 0 && head.top.allSatisfy { $0.from != 0 })
+        #expect(pairs(head.bottom) == [[0, 0], [1, 0]])
+        #expect(base.lane == 0)
+    }
+
+    @Test func branchOffHeadMakesReservedLaneLive() {
+        var g = GraphLayout(mainline: "h")
+        let f = g.add(id: "f", parents: ["h"])
+        let h = g.add(id: "h", parents: [])
+        #expect(f.lane == 1 && pairs(f.bottom) == [[1, 0]])
+        #expect(h.lane == 0 && pairs(h.top) == [[0, 0]])
+    }
+}

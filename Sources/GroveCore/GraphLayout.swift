@@ -30,10 +30,24 @@ public struct GraphLayout: Sendable {
     private var lanes: [String?] = []
     private var laneColors: [Int] = []
     private var nextColor = 0
+    /// Commit that lane 0 is reserved for before it has been reached (HEAD).
+    /// While set, lane 0 is not drawn and tips that arrive earlier go right of it.
+    private var reservedTip: String?
 
-    public init() {}
+    /// - Parameter mainline: commit to pin to the leftmost lane (usually HEAD);
+    ///   its first-parent chain then stays in lane 0.
+    public init(mainline: String? = nil) {
+        if let mainline {
+            lanes = [mainline]
+            laneColors = [takeColor()]
+            reservedTip = mainline
+        }
+    }
 
     public mutating func add(id: String, parents: [String]) -> GraphRow {
+        let reachedReserved = reservedTip == id
+        if reachedReserved { reservedTip = nil }
+
         let lane: Int
         if let l = lanes.firstIndex(of: id) {
             lane = l
@@ -47,22 +61,35 @@ public struct GraphLayout: Sendable {
         var top: [GraphSegment] = []
         for i in lanes.indices {
             guard let h = lanes[i] else { continue }
+            if h == reservedTip { continue }  // reserved lane not started yet
             if h == id {
-                top.append(GraphSegment(from: i, to: lane, color: laneColors[i]))
+                if !(reachedReserved && i == 0) {
+                    top.append(GraphSegment(from: i, to: lane, color: laneColors[i]))
+                }
                 if i != lane { lanes[i] = nil }
             } else {
                 top.append(GraphSegment(from: i, to: i, color: laneColors[i]))
             }
         }
 
-        let passThrough = lanes.indices.filter { $0 != lane && lanes[$0] != nil }
+        var passThrough = lanes.indices.filter { $0 != lane && lanes[$0] != nil && lanes[$0] != reservedTip }
         var bottom: [GraphSegment] = []
 
-        // First parent continues in this lane unless another lane already waits for it.
+        // First parent continues in the leftmost lane that waits for it: if a lane
+        // to the left already waits, fold into it; if one to the right does, pull it in.
         if let first = parents.first {
             if let j = lanes.firstIndex(of: first), j != lane {
-                lanes[lane] = nil
-                bottom.append(GraphSegment(from: lane, to: j, color: laneColors[j]))
+                if lanes[j] == reservedTip { reservedTip = nil }  // joined: the reserved lane is live now
+                if j < lane {
+                    lanes[lane] = nil
+                    bottom.append(GraphSegment(from: lane, to: j, color: laneColors[j]))
+                } else {
+                    lanes[lane] = first
+                    lanes[j] = nil
+                    passThrough.removeAll { $0 == j }
+                    bottom.append(GraphSegment(from: lane, to: lane, color: color))
+                    bottom.append(GraphSegment(from: j, to: lane, color: laneColors[j]))
+                }
             } else {
                 lanes[lane] = first
                 bottom.append(GraphSegment(from: lane, to: lane, color: color))
@@ -73,6 +100,7 @@ public struct GraphLayout: Sendable {
 
         for p in parents.dropFirst() {
             if let j = lanes.firstIndex(of: p) {
+                if lanes[j] == reservedTip { reservedTip = nil }
                 bottom.append(GraphSegment(from: lane, to: j, color: laneColors[j]))
             } else {
                 let k = allocate()

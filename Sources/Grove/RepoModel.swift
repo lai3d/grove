@@ -128,12 +128,12 @@ final class RepoModel {
         isLoadingLog = true
         let generation = logGeneration
         logTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let includeHEAD = await repo.hasHEAD()
-            var layout = GraphLayout()
+            let head = await repo.headID()
+            var layout = GraphLayout(mainline: head)
             var batch: [CommitRow] = []
             var flushAt = 300  // small first batch: paint fast, then go big
             do {
-                for try await record in repo.logRecords(includeHEAD: includeHEAD) {
+                for try await record in repo.logRecords(includeHEAD: head != nil) {
                     guard let c = GitParse.commit(record) else { continue }
                     batch.append(CommitRow(commit: c, graph: layout.add(id: c.id, parents: c.parents)))
                     if batch.count >= flushAt {

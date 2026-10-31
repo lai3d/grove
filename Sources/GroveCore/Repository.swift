@@ -23,8 +23,14 @@ public actor Repository {
     // MARK: Reads
 
     public nonisolated func hasHEAD() async -> Bool {
+        await headID() != nil
+    }
+
+    /// Commit HEAD points at, nil on an unborn branch.
+    public nonisolated func headID() async -> String? {
         let out = try? await git.runString(["rev-parse", "-q", "--verify", "HEAD^{commit}"], in: root, okExitCodes: [0, 1])
-        return !(out ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let id = (out ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
     }
 
     public nonisolated func currentBranch() async -> String? {
