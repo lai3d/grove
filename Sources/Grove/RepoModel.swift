@@ -942,4 +942,40 @@ final class RepoModel {
             try await repo.checkoutDetached(pos.sha)
         }
     }
+
+    // MARK: Blob pairs for image diffs
+
+    var selectedCommitFile: ChangedFile? {
+        guard let id = selectedFileID else { return nil }
+        return detail?.files.first { $0.id == id }
+    }
+
+    var commitBlobs: BlobPair? {
+        guard let repo, let d = detail, let f = selectedCommitFile else { return nil }
+        let parent = d.commit.parents.first, id = d.commit.id
+        return {
+            async let old: Data? = parent == nil ? nil : await repo.blob("\(parent!):\(f.origPath ?? f.path)")
+            async let new: Data? = await repo.blob("\(id):\(f.path)")
+            return (await old, await new)
+        }
+    }
+
+    var stashBlobs: BlobPair? {
+        guard let repo, let s = selectedStash, let id = selectedStashFileID else { return nil }
+        let sha = s.id
+        return {
+            let new = await repo.blob("\(sha):\(id)")
+            let untracked = new == nil ? await repo.blob("\(sha)^3:\(id)") : nil
+            return (await repo.blob("\(sha)^1:\(id)"), new ?? untracked)
+        }
+    }
+
+    var workingBlobs: BlobPair? {
+        guard let repo, let e = selectedEntry else { return nil }
+        let path = e.change.path, orig = e.change.origPath ?? path, staged = e.staged
+        return {
+            if staged { return (await repo.blob("HEAD:\(orig)"), await repo.blob(":\(path)")) }
+            return (await repo.blob(":\(path)"), repo.workingFile(path))
+        }
+    }
 }

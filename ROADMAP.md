@@ -35,7 +35,7 @@ Estimates are Claude Code session time.
 | 2.3 | ✅ Merge & rebase | Merge / rebase onto a branch; in-progress banner (continue / abort / skip), conflicted files with take ours / theirs / mark resolved | 0.8h |
 | 2.4 | ✅ Undo | ⌘Z (Edit ▸ Undo <action>) for commit, amend, reset (hard too: uncommitted changes are snapshotted), merge / rebase / cherry-pick / revert / pull, checkout, create / delete branch, discard (incl. untracked files), drop stash. Redo not yet | 0.6h |
 | 2.5 | ✅ File history & blame | History of a file follows renames (`--follow` + parents rewritten against the full graph so lanes stay connected); directories use a path-limited log. Blame sheet (working tree or any commit, `-M -C`), age-shaded gutter, click to jump to the commit | 0.6h |
-| 2.6 | ⬜ Better diffs | Side-by-side mode, word-level highlights, syntax highlighting, image diff via QuickLook | 1h |
+| 2.6 | ✅ Better diffs | Side-by-side mode, word-level highlights, syntax highlighting, image diff via QuickLook | 1h |
 | 2.7 | ⬜ Interactive rebase | Reorder / squash / fixup / reword / drop by drag, runs with a scripted `GIT_SEQUENCE_EDITOR` | 1h |
 
 ## Phase 3 — Polish & distribution

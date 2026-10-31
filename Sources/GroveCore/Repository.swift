@@ -545,6 +545,17 @@ public actor Repository {
         }
         return result
     }
+
+    // MARK: Blobs
+
+    /// Contents of `<rev>:<path>` (or `:<path>` for the index); nil if it doesn't exist there.
+    public nonisolated func blob(_ spec: String) async -> Data? {
+        try? await git.run(["cat-file", "blob", spec], in: root)
+    }
+
+    public nonisolated func workingFile(_ path: String) -> Data? {
+        FileManager.default.contents(atPath: root.appendingPathComponent(path).path)
+    }
 }
 
 extension GitError {

@@ -14,7 +14,7 @@ struct WorkingDiffPane: View {
            diff.hunks.reduce(0, { $0 + $1.lines.count }) <= Self.maxLines {
             HunkDiffView(model: model, diff: diff, staged: entry.staged)
         } else {
-            DiffView(text: model.workingDiff)
+            DiffPane(text: model.workingDiff, path: model.selectedEntry?.change.path, blobs: model.workingBlobs)
         }
     }
 }
@@ -24,6 +24,16 @@ struct HunkDiffView: View {
     let diff: FileDiff
     let staged: Bool
     @State private var anchor: (hunk: Int, line: Int)?
+    private let styler: DiffStyler
+    private let words: [[Int: [NSRange]]]
+
+    init(model: RepoModel, diff: FileDiff, staged: Bool) {
+        self.model = model
+        self.diff = diff
+        self.staged = staged
+        styler = DiffStyler(path: diff.newPath ?? diff.oldPath ?? "")
+        words = diff.hunks.map(DiffStyler.wordRanges)
+    }
 
     var body: some View {
         ScrollView {
@@ -32,7 +42,8 @@ struct HunkDiffView: View {
                     Section {
                         // IDs must be unique across sections of one LazyVStack.
                         ForEach(Array(hunk.lines.enumerated()), id: \.offset) { i, line in
-                            DiffLineRow(line: line, selected: model.selectedLines[h]?.contains(i) == true)
+                            DiffLineRow(line: line, selected: model.selectedLines[h]?.contains(i) == true,
+                                        text: styler.text(line, changed: words[h][i] ?? []))
                                 .contentShape(Rectangle())
                                 .onTapGesture { toggle(hunk: h, line: i) }
                                 .id("\(h)-\(i)")
@@ -100,12 +111,13 @@ struct HunkDiffView: View {
 struct DiffLineRow: View {
     let line: DiffLine
     let selected: Bool
+    var text: AttributedString?
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             number(line.oldNumber)
             number(line.newNumber)
-            Text(prefix + line.text + (line.noNewline ? "  ⏎̸" : ""))
+            Text(AttributedString(prefix) + (text ?? AttributedString(line.text)) + AttributedString(line.noNewline ? "  ⏎̸" : ""))
                 .font(.system(size: 12, design: .monospaced))
                 .foregroundStyle(line.kind == .context ? Color.primary.opacity(0.85) : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)

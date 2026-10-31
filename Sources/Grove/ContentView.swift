@@ -233,7 +233,7 @@ struct HistoryView: View {
             HSplitView {
                 CommitDetailPane(model: model)
                     .frame(minWidth: 240, idealWidth: 340, maxWidth: 600)
-                DiffView(text: model.commitDiff)
+                DiffPane(text: model.commitDiff, path: model.selectedFileID, blobs: model.commitBlobs)
                     .frame(minWidth: 320)
             }
             .frame(minHeight: 160)

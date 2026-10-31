@@ -37,7 +37,7 @@ struct StashView: View {
                 .listStyle(.inset)
             }
             .frame(minWidth: 240, idealWidth: 320, maxWidth: 560)
-            DiffView(text: model.stashDiff)
+            DiffPane(text: model.stashDiff, path: model.selectedStashFileID, blobs: model.stashBlobs)
                 .frame(minWidth: 320)
         }
     }
