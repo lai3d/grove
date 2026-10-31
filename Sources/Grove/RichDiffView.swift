@@ -153,6 +153,10 @@ struct SplitRowView: View {
     let styler: DiffStyler
     let words: [Int: [NSRange]]
     let syntax: [[SyntaxHighlighter.Token]]
+    /// Selected line indexes of the hunk (working-copy staging).
+    var selected: Set<Int> = []
+    /// Click on a changed line (index into the hunk); nil = not selectable.
+    var onTap: ((Int) -> Void)?
     @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
@@ -171,17 +175,25 @@ struct SplitRowView: View {
                 .frame(width: 40, alignment: .trailing)
                 .padding(.trailing, 6)
             if let line, let index {
-                Text(styler.text(line, tokens: syntax[index], changed: words[index] ?? []))
+                let text = Text(styler.text(line, tokens: syntax[index], changed: words[index] ?? []))
                     .font(.system(size: diffFontSize, design: .monospaced))
-                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                // Text selection swallows clicks, so it's off where clicking selects lines.
+                if onTap == nil { text.textSelection(.enabled) } else { text }
             } else {
                 Spacer().frame(maxWidth: .infinity)
             }
         }
         .padding(.vertical, 1)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(background(line))
+        .background(index.map { selected.contains($0) } == true ? Color.accentColor.opacity(0.28) : background(line))
+        .overlay(alignment: .leading) {
+            if let index, selected.contains(index) { Rectangle().fill(Color.accentColor).frame(width: 3) }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if let index, let line, line.isChange { onTap?(index) }
+        }
     }
 
     private func background(_ line: DiffLine?) -> Color {

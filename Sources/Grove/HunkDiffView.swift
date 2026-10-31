@@ -24,6 +24,7 @@ struct HunkDiffView: View {
     let diff: FileDiff
     let staged: Bool
     @State private var anchor: (hunk: Int, line: Int)?
+    @AppStorage("diffMode") private var mode: DiffMode = .unified
     private let styler: DiffStyler
     private let words: [[Int: [NSRange]]]
     private let syntax: [[[SyntaxHighlighter.Token]]]
@@ -38,17 +39,49 @@ struct HunkDiffView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text(diff.newPath ?? diff.oldPath ?? "").font(.callout).lineLimit(1).truncationMode(.middle)
+                Spacer()
+                Picker("", selection: $mode) {
+                    Text("Unified").tag(DiffMode.unified)
+                    Text("Split").tag(DiffMode.split)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .controlSize(.small)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.bar)
+            .overlay(alignment: .bottom) { Divider() }
+            hunks.id(mode)
+        }
+    }
+
+    private var hunks: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 ForEach(Array(diff.hunks.enumerated()), id: \.offset) { h, hunk in
                     Section {
+                        if mode == .split {
+                            let rows = hunk.splitRows
+                            ForEach(rows.indices, id: \.self) { r in
+                                SplitRowView(row: rows[r], styler: styler, words: words[h], syntax: syntax[h],
+                                             selected: model.selectedLines[h] ?? []) { i in toggle(hunk: h, line: i) }
+                                    .id("s\(h)-\(r)")
+                            }
+                        } else {
                         // IDs must be unique across sections of one LazyVStack.
                         ForEach(Array(hunk.lines.enumerated()), id: \.offset) { i, line in
                             DiffLineRow(line: line, selected: model.selectedLines[h]?.contains(i) == true,
-                                        text: styler.text(line, tokens: syntax[h][i], changed: words[h][i] ?? []))
+                                        text: styler.text(line, tokens: syntax[h][i], changed: words[h][i] ?? []),
+                                        selectable: true)
                                 .contentShape(Rectangle())
                                 .onTapGesture { toggle(hunk: h, line: i) }
                                 .id("\(h)-\(i)")
+                        }
                         }
                         Spacer().frame(height: 10)
                     } header: {
@@ -114,18 +147,20 @@ struct DiffLineRow: View {
     let line: DiffLine
     let selected: Bool
     var text: AttributedString?
+    /// Clicking selects the line (working copy): text selection would swallow the click.
+    var selectable = false
     @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             number(line.oldNumber)
             number(line.newNumber)
-            Text(AttributedString(prefix) + (text ?? AttributedString(line.text)) + AttributedString(line.noNewline ? "  ⏎̸" : ""))
+            let body = Text(AttributedString(prefix) + (text ?? AttributedString(line.text)) + AttributedString(line.noNewline ? "  ⏎̸" : ""))
                 .font(.system(size: diffFontSize, design: .monospaced))
                 .foregroundStyle(line.kind == .context ? Color.primary.opacity(0.85) : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 6)
-                .textSelection(.enabled)
+            if selectable { body } else { body.textSelection(.enabled) }
         }
         .padding(.vertical, 1)
         .background(background)
