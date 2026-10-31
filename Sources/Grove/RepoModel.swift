@@ -8,6 +8,18 @@ enum SidebarItem: Hashable {
     case ref(String)
 }
 
+enum BranchSheet: Identifiable {
+    case create(startPoint: String, label: String)
+    case rename(Ref)
+
+    var id: String {
+        switch self {
+        case .create(let start, _): "create:\(start)"
+        case .rename(let ref): "rename:\(ref.id)"
+        }
+    }
+}
+
 struct CommitDetail {
     let commit: Commit
     let message: String
@@ -67,6 +79,14 @@ final class RepoModel {
     private(set) var workingDiff = ""
     var commitMessage = ""
     private(set) var isCommitting = false
+
+    // Branch UI
+    var branchSheet: BranchSheet?
+    var pendingDelete: Ref?
+    var forceDelete: Ref?
+    var sidebarFilter = ""
+    var expandedGroups: Set<String> = []
+    private(set) var isBusy = false
 
     private var logTask: Task<Void, Never>?
     private var logRequest = 0
@@ -289,5 +309,87 @@ final class RepoModel {
             errorMessage = "\(error)"
         }
         await refreshRefsAndStatus()
+    }
+
+    // MARK: Branches
+
+    func ref(id: String) -> Ref? { refs.first { $0.id == id } }
+
+    func isCurrent(_ ref: Ref) -> Bool { ref.kind == .branch && ref.name == currentBranch }
+
+    func checkout(_ ref: Ref) async {
+        guard !isCurrent(ref) else { return }
+        await perform { try await $0.checkout(ref) }
+    }
+
+    func checkoutDetached(_ commitID: String) async {
+        await perform { try await $0.checkoutDetached(commitID) }
+    }
+
+    func validateBranchName(_ name: String) async -> String? {
+        guard let repo else { return nil }
+        if let problem = await repo.validateBranchName(name) { return problem }
+        if refs.contains(where: { $0.kind == .branch && $0.name == name }) { return "A branch named “\(name)” already exists" }
+        return nil
+    }
+
+    /// Returns an error message to show in the sheet, nil on success.
+    func createBranch(_ name: String, at startPoint: String, checkout: Bool) async -> String? {
+        guard let repo else { return nil }
+        do {
+            try await repo.createBranch(name, at: startPoint, checkout: checkout)
+        } catch {
+            return "\(error)"
+        }
+        await refresh()
+        return nil
+    }
+
+    func renameBranch(_ ref: Ref, to name: String) async -> String? {
+        guard let repo else { return nil }
+        do {
+            try await repo.renameBranch(ref.name, to: name)
+        } catch {
+            return "\(error)"
+        }
+        if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .ref("refs/heads/" + name) }
+        await refresh()
+        return nil
+    }
+
+    func deleteBranch(_ ref: Ref, force: Bool) async {
+        guard let repo else { return }
+        do {
+            try await repo.deleteBranch(ref.name, force: force)
+            if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .history }
+        } catch let e as GitError where e.isNotFullyMerged && !force {
+            forceDelete = ref
+        } catch {
+            errorMessage = "\(error)"
+        }
+        await refresh()
+    }
+
+    /// Starting point for "New Branch": the selected commit in history, else HEAD.
+    func beginNewBranch() {
+        if !showsWorkingCopy, let id = selectedCommitID, let row = rowIndex[id] {
+            let c = rows[row].commit
+            branchSheet = .create(startPoint: c.id, label: "\(c.shortID) “\(c.subject)”")
+        } else {
+            branchSheet = .create(startPoint: "HEAD", label: currentBranch ?? "HEAD")
+        }
+    }
+
+    /// Runs a write that can move HEAD or refs, then refreshes everything.
+    private func perform(_ op: (Repository) async throws -> Void) async {
+        guard let repo, !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            try await op(repo)
+        } catch {
+            errorMessage = "\(error)"
+        }
+        await refresh()
     }
 }

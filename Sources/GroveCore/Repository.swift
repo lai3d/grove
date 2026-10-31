@@ -130,4 +130,61 @@ public actor Repository {
     public func commit(message: String) async throws {
         _ = try await git.run(["commit", "-F", "-"], in: root, input: Data(message.utf8))
     }
+
+    // MARK: Branches
+
+    /// nil when `name` is a valid branch name, else git's complaint.
+    public nonisolated func validateBranchName(_ name: String) async -> String? {
+        if name.isEmpty { return "Name is empty" }
+        do {
+            _ = try await git.run(["check-ref-format", "--branch", name], in: root)
+            return nil
+        } catch {
+            return "“\(name)” is not a valid branch name"
+        }
+    }
+
+    /// Switches to a local branch, or for a remote branch to a local tracking
+    /// branch of the same name (created if missing).
+    public func checkout(_ ref: Ref) async throws {
+        switch ref.kind {
+        case .branch:
+            _ = try await git.run(["switch", "--no-guess", ref.name], in: root)
+        case .remote:
+            let local = ref.name.split(separator: "/", maxSplits: 1).last.map(String.init) ?? ref.name
+            let exists = (try? await git.run(["rev-parse", "-q", "--verify", "refs/heads/\(local)"], in: root)) != nil
+            if exists {
+                _ = try await git.run(["switch", "--no-guess", local], in: root)
+            } else {
+                _ = try await git.run(["switch", "--track", ref.name], in: root)
+            }
+        case .tag:
+            _ = try await git.run(["switch", "--detach", ref.fullName], in: root)
+        }
+    }
+
+    public func checkoutDetached(_ commitID: String) async throws {
+        _ = try await git.run(["switch", "--detach", commitID], in: root)
+    }
+
+    public func createBranch(_ name: String, at startPoint: String, checkout: Bool) async throws {
+        if checkout {
+            _ = try await git.run(["switch", "-c", name, startPoint], in: root)
+        } else {
+            _ = try await git.run(["branch", "--no-track", name, startPoint], in: root)
+        }
+    }
+
+    public func renameBranch(_ old: String, to new: String) async throws {
+        _ = try await git.run(["branch", "-m", old, new], in: root)
+    }
+
+    /// Throws `GitError` with `isNotFullyMerged` when `force` is false and the branch has unmerged work.
+    public func deleteBranch(_ name: String, force: Bool) async throws {
+        _ = try await git.run(["branch", force ? "-D" : "-d", name], in: root)
+    }
+}
+
+extension GitError {
+    public var isNotFullyMerged: Bool { stderr.contains("not fully merged") }
 }

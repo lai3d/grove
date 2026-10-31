@@ -44,6 +44,9 @@ struct GroveCommands: Commands {
             Button("Refresh") { Task { await model?.refresh() } }
                 .keyboardShortcut("r")
                 .disabled(model == nil)
+            Button("New Branch…") { model?.beginNewBranch() }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .disabled(model == nil)
             Divider()
             Button("Working Copy") { model?.sidebarSelection = .workingCopy }
                 .keyboardShortcut("1")

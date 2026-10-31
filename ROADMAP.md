@@ -18,7 +18,7 @@ Estimates are Claude Code session time.
 |---|---|---|---|
 | 1.1 | ✅ Straighter graph | First-parent chain keeps its lane (main stays on the left); merged side lanes free up immediately | 0.3h |
 | 1.2 | ✅ Auto refresh | FSEvents on the working tree + `.git` (HEAD, refs, index), debounced; ignores lock-file churn | 0.3h |
-| 1.3 | ⬜ Branch operations | Checkout (double-click; remote → tracking branch), new branch from any commit, rename, delete (confirm, force if unmerged); sidebar filter, remotes grouped by remote | 0.5h |
+| 1.3 | ✅ Branch operations | Checkout (double-click; remote → tracking branch), new branch from any commit, rename, delete (confirm, force if unmerged); sidebar filter, remotes grouped by remote | 0.5h |
 | 1.4 | ⬜ Fetch / pull / push | Toolbar buttons, progress + cancel, push sets upstream, pull ff / rebase; activity log of every git command run | 0.5h |
 | 1.5 | ⬜ Hunk & line staging | Diff parser in Core; stage / unstage / discard a hunk or selected lines via `git apply` | 0.6h |
 | 1.6 | ⬜ Discard & stash | Discard file changes (confirm); stash save / apply / pop / drop, stashes in sidebar with their diff | 0.4h |

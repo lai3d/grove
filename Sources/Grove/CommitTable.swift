@@ -39,6 +39,9 @@ struct CommitTable: NSViewRepresentable {
         }
         table.dataSource = context.coordinator
         table.delegate = context.coordinator
+        let menu = NSMenu()
+        menu.delegate = context.coordinator
+        table.menu = menu
 
         let scroll = NSScrollView()
         scroll.documentView = table
@@ -84,7 +87,7 @@ struct CommitTable: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+    final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSMenuDelegate {
         var model: RepoModel
         weak var table: NSTableView?
         var count = 0
@@ -124,6 +127,37 @@ struct CommitTable: NSViewRepresentable {
                 cell.set(item.commit.shortID, secondary: true, monospaced: true)
             }
             return cell
+        }
+
+        // MARK: Context menu
+
+        func menuNeedsUpdate(_ menu: NSMenu) {
+            menu.removeAllItems()
+            guard let table, table.clickedRow >= 0, table.clickedRow < model.rows.count else { return }
+            let commit = model.rows[table.clickedRow].commit
+            func item(_ title: String, _ action: @escaping @MainActor () -> Void) {
+                let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+                i.target = self
+                i.representedObject = MenuAction(action)
+                menu.addItem(i)
+            }
+            let model = self.model
+            item("New Branch Here…") {
+                model.branchSheet = .create(startPoint: commit.id, label: "\(commit.shortID) “\(commit.subject)”")
+            }
+            item("Check Out Detached") { Task { await model.checkoutDetached(commit.id) } }
+            menu.addItem(.separator())
+            item("Copy SHA") { Self.copy(commit.id) }
+            item("Copy Subject") { Self.copy(commit.subject) }
+        }
+
+        @objc private func runMenuAction(_ sender: NSMenuItem) {
+            (sender.representedObject as? MenuAction)?.run()
+        }
+
+        static func copy(_ s: String) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(s, forType: .string)
         }
 
         func tableViewSelectionDidChange(_ notification: Notification) {
@@ -273,4 +307,10 @@ final class CommitGraphCell: NSTableCellView {
         text.draw(at: NSPoint(x: rect.minX + 6, y: mid - size.height / 2))
         return rect.maxX
     }
+}
+
+@MainActor
+final class MenuAction: NSObject {
+    let run: @MainActor () -> Void
+    init(_ run: @escaping @MainActor () -> Void) { self.run = run }
 }

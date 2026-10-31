@@ -84,11 +84,32 @@ struct RepoWindow: View {
                 }
             }
             ToolbarItem {
+                Button { model.beginNewBranch() } label: {
+                    Label("New Branch", systemImage: "arrow.triangle.branch")
+                }
+                .help("New Branch (⇧⌘N)")
+            }
+            ToolbarItem {
                 Button { Task { await model.refresh() } } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .help("Refresh (⌘R)")
             }
+        }
+        .sheet(item: $model.branchSheet) { BranchNameSheet(model: model, sheet: $0) }
+        .confirmationDialog("Delete branch “\(model.pendingDelete?.name ?? "")”?",
+                            isPresented: Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let ref = model.pendingDelete { Task { await model.deleteBranch(ref, force: false) } }
+            }
+        }
+        .confirmationDialog("“\(model.forceDelete?.name ?? "")” is not fully merged",
+                            isPresented: Binding(get: { model.forceDelete != nil }, set: { if !$0 { model.forceDelete = nil } })) {
+            Button("Delete Anyway", role: .destructive) {
+                if let ref = model.forceDelete { Task { await model.deleteBranch(ref, force: true) } }
+            }
+        } message: {
+            Text("Its commits are not reachable from its upstream or HEAD and will only be recoverable through the reflog.")
         }
         .task { await model.load() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -100,56 +121,6 @@ struct RepoWindow: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
-    }
-}
-
-struct SidebarView: View {
-    @Bindable var model: RepoModel
-
-    var body: some View {
-        List(selection: $model.sidebarSelection) {
-            Section("Workspace") {
-                Label("Working Copy", systemImage: "square.and.pencil")
-                    .badge(model.changes.count)
-                    .tag(SidebarItem.workingCopy)
-                Label("History", systemImage: "clock.arrow.circlepath")
-                    .tag(SidebarItem.history)
-            }
-            refSection("Branches", kind: .branch, icon: "arrow.triangle.branch")
-            refSection("Remotes", kind: .remote, icon: "cloud")
-            refSection("Tags", kind: .tag, icon: "tag")
-        }
-    }
-
-    @ViewBuilder
-    private func refSection(_ title: String, kind: Ref.Kind, icon: String) -> some View {
-        let refs = model.refs.filter { $0.kind == kind }
-        if !refs.isEmpty {
-            Section(title) {
-                ForEach(refs) { ref in
-                    let current = kind == .branch && ref.name == model.currentBranch
-                    HStack {
-                        Label(ref.name, systemImage: current ? "checkmark.circle.fill" : icon)
-                            .fontWeight(current ? .semibold : .regular)
-                            .lineLimit(1)
-                        Spacer()
-                        if !ref.track.isEmpty {
-                            Text(trackSummary(ref.track)).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    .tag(SidebarItem.ref(ref.id))
-                    .help(ref.upstream.map { "Tracking \($0)" } ?? ref.fullName)
-                }
-            }
-        }
-    }
-
-    /// "[ahead 2, behind 1]" → "↑2 ↓1"
-    private func trackSummary(_ track: String) -> String {
-        track.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-            .replacingOccurrences(of: "ahead ", with: "↑")
-            .replacingOccurrences(of: "behind ", with: "↓")
-            .replacingOccurrences(of: ",", with: "")
     }
 }
 
