@@ -140,5 +140,6 @@ enum RecentRepositories {
         paths.removeAll { $0 == url.path }
         paths.insert(url.path, at: 0)
         UserDefaults.standard.set(Array(paths.prefix(12)), forKey: key)
+        ToolboxRecents.record(url)
     }
 }
