@@ -60,5 +60,5 @@ Estimates are Claude Code session time.
 | 4.6 | ✅ Window tabs | Repositories open as native window tabs (⌘T to open another), tab title = repo name | 0.3h |
 | 4.7 | ✅ Smarter highlighting | Highlighter keeps multi-line comment / string state across lines in a hunk | 0.3h |
 | 4.8 | ✅ Split-view staging | Stage / unstage / discard hunks and lines from the side-by-side working-copy diff too | 0.5h |
-| 4.9 | ⬜ Merge editor | Conflicted text files: per-conflict "ours / theirs / both" choices with live preview, then mark resolved | 1h |
+| 4.9 | ✅ Merge editor | Conflicted text files: per-conflict "ours / theirs / both" choices with live preview, then mark resolved | 1h |
 

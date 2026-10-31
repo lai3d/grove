@@ -32,6 +32,7 @@ struct WorkingCopyView: View {
             WorkingDiffPane(model: model)
                 .frame(minWidth: 320)
         }
+        .sheet(item: $model.mergeEditor) { MergeEditorSheet(model: model, target: $0) }
     }
 
     private func section(_ title: String, entries: [ChangeEntry], action: String, icon: String,
@@ -92,6 +93,8 @@ struct WorkingCopyView: View {
                     FileRow(letter: "U", path: e.change.path)
                     Spacer()
                     Menu {
+                        Button("Open Merge Editor…") { model.mergeEditor = MergeEditorTarget(path: e.change.path) }
+                        Divider()
                         Button("Take \(sideNames.ours)") { Task { await model.resolve(e, taking: .ours) } }
                         Button("Take \(sideNames.theirs)") { Task { await model.resolve(e, taking: .theirs) } }
                         Divider()
@@ -105,6 +108,8 @@ struct WorkingCopyView: View {
                     .help("Resolve")
                 }
                 .contextMenu {
+                    Button("Open Merge Editor…") { model.mergeEditor = MergeEditorTarget(path: e.change.path) }
+                    Divider()
                     Button("Take \(sideNames.ours)") { Task { await model.resolve(e, taking: .ours) } }
                     Button("Take \(sideNames.theirs)") { Task { await model.resolve(e, taking: .theirs) } }
                     Divider()

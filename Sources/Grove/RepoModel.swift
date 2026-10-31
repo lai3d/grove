@@ -920,6 +920,12 @@ final class RepoModel {
         await write { try await $0.resolve(entry.change.path, taking: side) }
     }
 
+    var mergeEditor: MergeEditorTarget?
+
+    func saveResolution(_ path: String, text: String) async {
+        await write { try await $0.saveResolution(path, text: text) }
+    }
+
     func markResolved(_ entry: ChangeEntry) async {
         await write { try await $0.markResolved(entry.change.path) }
     }
