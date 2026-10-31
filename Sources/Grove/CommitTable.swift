@@ -139,7 +139,7 @@ struct CommitTable: NSViewRepresentable {
             let commit = model.displayRow(table.clickedRow).commit
             let selected = table.selectedRowIndexes
             if selected.count > 1, selected.contains(table.clickedRow) {
-                multiMenu(menu, selected.map { model.displayRow($0).commit })
+                multiMenu(menu, selected.map { self.model.displayRow($0).commit })
                 return
             }
             func item(_ title: String, _ action: @escaping @MainActor () -> Void) {
