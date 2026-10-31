@@ -37,6 +37,26 @@ struct RootView: View {
 struct WelcomeView: View {
     let open: (URL) -> Void
     @State private var recents = RecentRepositories.all()
+    @State private var summaries: [URL: RepoSummary] = [:]
+
+    /// Branch, changes and ahead / behind for each recent repository, a few `git status` at a time.
+    private func loadSummaries() async {
+        let urls = recents
+        await withTaskGroup(of: (URL, RepoSummary?).self) { group in
+            var next = 0
+            func add() {
+                guard next < urls.count else { return }
+                let url = urls[next]
+                next += 1
+                group.addTask { (url, await RepoSummary.load(url)) }
+            }
+            for _ in 0..<4 { add() }
+            for await (url, summary) in group {
+                summaries[url] = summary
+                add()
+            }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -63,6 +83,7 @@ struct WelcomeView: View {
                             Text(url.lastPathComponent).font(.headline)
                             Text((url.path as NSString).abbreviatingWithTildeInPath)
                                 .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            if let s = summaries[url] { RepoSummaryLine(summary: s) }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
@@ -70,9 +91,42 @@ struct WelcomeView: View {
                     .buttonStyle(.plain)
                     .padding(.vertical, 3)
                 }
-                .frame(width: 300)
+                .frame(width: 330)
+                .task { await loadSummaries() }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                    Task { await loadSummaries() }
+                }
             }
         }
+    }
+}
+
+struct RepoSummaryLine: View {
+    let summary: RepoSummary
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Label(summary.branch ?? summary.detachedAt.map { "detached \($0)" } ?? "—", systemImage: "arrow.triangle.branch")
+                .lineLimit(1)
+            if summary.ahead > 0 { Label("\(summary.ahead)", systemImage: "arrow.up").help("Commits to push") }
+            if summary.behind > 0 { Label("\(summary.behind)", systemImage: "arrow.down").help("Commits to pull") }
+            if summary.conflicts > 0 {
+                Label("\(summary.conflicts)", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.red)
+                    .help("Conflicted files")
+            } else if summary.changed > 0 {
+                Label("\(summary.changed)", systemImage: "pencil").foregroundStyle(.orange)
+                    .help("Changed files")
+            }
+        }
+        .labelStyle(CompactLabelStyle())
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+}
+
+struct CompactLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 2) { configuration.icon.imageScale(.small); configuration.title }
     }
 }
 
