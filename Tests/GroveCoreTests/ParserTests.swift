@@ -26,6 +26,26 @@ import Testing
         #expect(c.refs == [RefLabel(kind: .tag, name: "v2")])
     }
 
+    @Test func commitRecordWithoutDecorations() throws {
+        let c = try #require(GitParse.commit(Data("abc\u{1f}p\u{1f}A\u{1f}a@x\u{1f}1\u{1f}subject".utf8)))
+        #expect(c.subject == "subject" && c.refs.isEmpty)
+    }
+
+    @Test func decorationsFromRefs() {
+        let refs = [
+            Ref(fullName: "refs/tags/v1", kind: .tag, name: "v1", target: "c1", upstream: nil, track: ""),
+            Ref(fullName: "refs/remotes/origin/main", kind: .remote, name: "origin/main", target: "c1", upstream: nil, track: ""),
+            Ref(fullName: "refs/heads/feature", kind: .branch, name: "feature", target: "c1", upstream: nil, track: ""),
+            Ref(fullName: "refs/heads/main", kind: .branch, name: "main", target: "c1", upstream: nil, track: ""),
+            Ref(fullName: "refs/heads/old", kind: .branch, name: "old", target: "c0", upstream: nil, track: ""),
+        ]
+        let d = GitParse.decorations(refs: refs, head: "c1", currentBranch: "main")
+        #expect(d["c1"]?.map(\.name) == ["main", "feature", "origin/main", "v1"])
+        #expect(d["c1"]?.first?.isCurrent == true && d["c0"]?.map(\.name) == ["old"])
+        let detached = GitParse.decorations(refs: [], head: "c9", currentBranch: nil)
+        #expect(detached["c9"] == [RefLabel(kind: .head, name: "HEAD", isCurrent: true)])
+    }
+
     @Test func rootCommitRecord() throws {
         let c = try #require(GitParse.commit(Data("\nabc\u{1f}\u{1f}A\u{1f}a@x\u{1f}1\u{1f}init\u{1f}".utf8)))
         #expect(c.id == "abc" && c.parents.isEmpty && c.refs.isEmpty && c.subject == "init")

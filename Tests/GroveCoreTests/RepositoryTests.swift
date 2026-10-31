@@ -64,8 +64,9 @@ import Testing
              || log.map(\.subject) == ["merge feature", "feature work", "main work", "root"])
         let merge = log[0]
         #expect(merge.isMerge)
-        #expect(merge.refs.contains(RefLabel(kind: .branch, name: "main", isCurrent: true)))
-        #expect(merge.refs.contains(RefLabel(kind: .tag, name: "v1")))
+        let labels = GitParse.decorations(refs: try await repo.refs(), head: await repo.headID(), currentBranch: await repo.currentBranch())
+        #expect(labels[merge.id]?.contains(RefLabel(kind: .branch, name: "main", isCurrent: true)) == true)
+        #expect(labels[merge.id]?.contains(RefLabel(kind: .tag, name: "v1")) == true)
 
         var layout = GraphLayout()
         let rows = log.map { layout.add(id: $0.id, parents: $0.parents) }
@@ -148,6 +149,17 @@ import Testing
         let count = try await git.runString(["rev-list", "--count", "HEAD"], in: dir)
         #expect(count.trimmingCharacters(in: .whitespacesAndNewlines) == "1")
         #expect(await repo.isHeadPushed() == false)  // no upstream
+    }
+
+    @Test func optimizeWritesCommitGraph() async throws {
+        try write("a.txt", "1\n")
+        try await sh("add", ".")
+        try await sh("commit", "-qm", "one")
+        let repo = try await Repository.open(dir)
+        #expect(!repo.hasCommitGraph)
+        try await repo.optimize { _ in }
+        #expect(repo.hasCommitGraph)
+        #expect(try await sh("config", "--get", "core.untrackedCache").hasPrefix("true"))
     }
 
     @Test func gitErrorsSurface() async throws {

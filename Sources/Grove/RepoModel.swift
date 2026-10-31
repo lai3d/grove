@@ -104,6 +104,8 @@ final class RepoModel {
     /// Bumped to ask the table to scroll to the selected commit.
     private(set) var scrollToken = 0
     private(set) var isLoadingLog = false
+    /// Big history without a commit-graph: suggest "Optimize Repository".
+    private(set) var suggestOptimize = false
 
     // History filtering
     var historyFilter = "" {
@@ -138,6 +140,8 @@ final class RepoModel {
         return filtered == nil ? i : filteredPosition[i]
     }
     private(set) var refs: [Ref] = []
+    /// Ref labels per commit id (computed from `refs`; `git log` runs undecorated).
+    private(set) var decorations: [String: [RefLabel]] = [:]
     private(set) var currentBranch: String?
 
     var selectedCommitID: String? {
@@ -289,6 +293,7 @@ final class RepoModel {
             self.stashes = try await stashes
             self.refs = try await refs
             self.currentBranch = await branch
+            self.decorations = GitParse.decorations(refs: self.refs, head: await repo.headID(), currentBranch: self.currentBranch)
             self.changes = try await status
             self.operation = repo.operation()
             let all = stagedEntries + unstagedEntries + conflictEntries
@@ -367,7 +372,13 @@ final class RepoModel {
             // Selection vanished (amend, reset…) or never existed: pick the newest commit.
             if done || selectedCommitID == nil { selectedCommitID = rows.first?.id }
         }
-        if done { isLoadingLog = false }
+        if done {
+            isLoadingLog = false
+            if let repo, pathFilter == nil {
+                suggestOptimize = rows.count >= 20_000 && !repo.hasCommitGraph
+                    && !UserDefaults.standard.bool(forKey: "noOptimizeHint:" + repo.root.path)
+            }
+        }
     }
 
     private func applyFilter() {
@@ -394,7 +405,7 @@ final class RepoModel {
                 || c.authorName.localizedCaseInsensitiveContains(q)
                 || c.authorEmail.localizedCaseInsensitiveContains(q)
                 || (isHex && c.id.hasPrefix(q.lowercased()))
-                || c.refs.contains { $0.name.localizedCaseInsensitiveContains(q) }
+                || (decorations[c.id]?.contains { $0.name.localizedCaseInsensitiveContains(q) } ?? false)
             if hit {
                 filteredPosition[i] = filtered!.count
                 filtered!.append(i)
@@ -1048,5 +1059,17 @@ final class RepoModel {
     func open(_ s: Submodule) {
         guard let repo, s.state != .notInitialized else { return }
         openRequest = repo.root.appendingPathComponent(s.path)
+    }
+
+    // MARK: Performance
+
+    func optimizeRepository() {
+        suggestOptimize = false
+        runRemote("Optimizing") { repo, progress in try await repo.optimize(progress: progress) }
+    }
+
+    func dismissOptimizeHint() {
+        suggestOptimize = false
+        if let repo { UserDefaults.standard.set(true, forKey: "noOptimizeHint:" + repo.root.path) }
     }
 }

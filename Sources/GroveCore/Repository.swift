@@ -60,7 +60,7 @@ public actor Repository {
     /// With `path`, only commits touching it, with parents rewritten (`--parents`) so the
     /// graph of the simplified history stays connected.
     public nonisolated func logRecords(includeHEAD: Bool, path: String? = nil) -> AsyncThrowingStream<Data, Error> {
-        var args = ["log", "-z", "--topo-order", "--decorate=full", GitParse.logFormat]
+        var args = ["log", "-z", "--topo-order", GitParse.logFormat]
         if path != nil { args.append("--parents") }
         if includeHEAD { args.append("HEAD") }
         args += ["--branches", "--remotes", "--tags"]
@@ -568,7 +568,7 @@ public actor Repository {
             throw GitError(arguments: ["rebase"], exitCode: 1, stderr: "The range contains merge commits — interactive rebase of merges isn't supported")
         }
         var steps: [RebaseStep] = []
-        for try await record in git.records(["log", "-z", "--reverse", "--topo-order", "--decorate=full", GitParse.logFormat, range], in: root) {
+        for try await record in git.records(["log", "-z", "--reverse", "--topo-order", GitParse.logFormat, range], in: root) {
             guard let c = GitParse.commit(record) else { continue }
             steps.append(RebaseStep(commit: c, originalMessage: try await message(of: c.id)))
         }
@@ -659,6 +659,26 @@ public actor Repository {
 
     public func updateSubmodule(_ path: String) async throws {
         _ = try await git.run(["submodule", "update", "--init", "--recursive", "--", path], in: root)
+    }
+
+    // MARK: Performance
+
+    public nonisolated var hasCommitGraph: Bool {
+        let info = commonDir.appendingPathComponent("objects/info")
+        let fm = FileManager.default
+        return fm.fileExists(atPath: info.appendingPathComponent("commit-graph").path)
+            || fm.fileExists(atPath: info.appendingPathComponent("commit-graphs").path)
+    }
+
+    /// Writes a commit-graph with changed-path Bloom filters (fast topo-order streaming and
+    /// path-limited logs) and turns on the file-system monitor + untracked cache for status.
+    public func optimize(progress: @escaping @Sendable (String) -> Void) async throws {
+        _ = try await git.runWithProgress(["commit-graph", "write", "--reachable", "--changed-paths", "--progress"],
+                                          in: root, progress: progress)
+        _ = try await git.run(["config", "--local", "core.untrackedCache", "true"], in: root)
+        _ = try await git.run(["config", "--local", "fetch.writeCommitGraph", "true"], in: root)
+        // Builtin fsmonitor needs git ≥ 2.36 on macOS; older gits just ignore the setting.
+        _ = try await git.run(["config", "--local", "core.fsmonitor", "true"], in: root)
     }
 }
 

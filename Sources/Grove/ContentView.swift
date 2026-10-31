@@ -243,6 +243,22 @@ struct HistoryView: View {
     var body: some View {
         VSplitView {
             VStack(spacing: 0) {
+                if model.suggestOptimize {
+                    HStack(spacing: 10) {
+                        Image(systemName: "bolt.fill").foregroundStyle(.yellow)
+                        Text("\(model.rows.count.formatted()) commits and no commit-graph — writing one makes history (and git itself) load much faster.")
+                            .font(.callout)
+                            .lineLimit(2)
+                        Spacer()
+                        Button("Not Now") { model.dismissOptimizeHint() }
+                        Button("Optimize") { model.optimizeRepository() }.buttonStyle(.borderedProminent)
+                    }
+                    .controlSize(.small)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.yellow.opacity(0.12))
+                    .overlay(alignment: .bottom) { Divider() }
+                }
                 HistoryFilterBar(model: model)
                 CommitTable(model: model, rowCount: model.displayCount, generation: model.logGeneration,
                             selectedID: model.selectedCommitID, scrollToken: model.scrollToken)

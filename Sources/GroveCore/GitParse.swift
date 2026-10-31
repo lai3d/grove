@@ -4,13 +4,15 @@ import Foundation
 public enum GitParse {
     static let fieldSeparator: Character = "\u{1f}"
 
-    /// `--format` used with `git log -z`, matched by `commit(_:)`.
-    public static let logFormat = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s%x1f%D"
+    /// `--format` used with `git log -z`, matched by `commit(_:)`. No `%D`: decorating makes
+    /// `git log` up to 3× slower to start on big histories; ref labels come from
+    /// `decorations(refs:…)` instead.
+    public static let logFormat = "--format=%H%x1f%P%x1f%an%x1f%ae%x1f%at%x1f%s"
 
     public static func commit(_ record: Data) -> Commit? {
         let s = String(decoding: record, as: UTF8.self)
         let f = s.split(separator: fieldSeparator, omittingEmptySubsequences: false)
-        guard f.count >= 7 else { return nil }
+        guard f.count >= 6 else { return nil }
         let id = f[0].trimmingCharacters(in: .whitespacesAndNewlines)
         guard !id.isEmpty else { return nil }
         return Commit(
@@ -20,7 +22,7 @@ public enum GitParse {
             authorEmail: String(f[3]),
             date: Date(timeIntervalSince1970: TimeInterval(f[4]) ?? 0),
             subject: String(f[5]),
-            refs: decorations(String(f[6...].joined(separator: String(fieldSeparator))))
+            refs: f.count > 6 ? decorations(String(f[6...].joined(separator: String(fieldSeparator)))) : []
         )
     }
 
@@ -60,6 +62,26 @@ public enum GitParse {
 
     private static func strip(_ s: String, _ prefix: String) -> String {
         s.hasPrefix(prefix) ? String(s.dropFirst(prefix.count)) : s
+    }
+
+    /// Ref labels per commit id, built from `for-each-ref` output (current branch first).
+    public static func decorations(refs: [Ref], head: String?, currentBranch: String?) -> [String: [RefLabel]] {
+        var out: [String: [RefLabel]] = [:]
+        if let head, currentBranch == nil {
+            out[head, default: []].append(RefLabel(kind: .head, name: "HEAD", isCurrent: true))
+        }
+        let order: [Ref.Kind: Int] = [.branch: 0, .remote: 1, .tag: 2]
+        for ref in refs.sorted(by: { (order[$0.kind]!, $0.name) < (order[$1.kind]!, $1.name) }) {
+            let kind: RefLabel.Kind = switch ref.kind {
+            case .branch: .branch
+            case .remote: .remote
+            case .tag: .tag
+            }
+            let current = ref.kind == .branch && ref.name == currentBranch
+            let label = RefLabel(kind: kind, name: ref.name, isCurrent: current)
+            if current { out[ref.target, default: []].insert(label, at: 0) } else { out[ref.target, default: []].append(label) }
+        }
+        return out
     }
 
     /// `for-each-ref` format matched by `refs(_:)`.

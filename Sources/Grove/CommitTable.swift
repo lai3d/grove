@@ -114,6 +114,7 @@ struct CommitTable: NSViewRepresentable {
                 let cell = tableView.makeView(withIdentifier: id, owner: nil) as? CommitGraphCell
                     ?? CommitGraphCell(identifier: id)
                 cell.showsGraph = !model.isFiltering
+                cell.labels = model.decorations[item.id] ?? []
                 cell.row = item
                 return cell
             }
@@ -225,6 +226,7 @@ final class CommitGraphCell: NSTableCellView {
     }
     /// Off while filtering: lanes of a filtered list would be misleading.
     var showsGraph = true
+    var labels: [RefLabel] = []
 
     static let laneWidth: CGFloat = 14
     static let leftPad: CGFloat = 10
@@ -300,7 +302,7 @@ final class CommitGraphCell: NSTableCellView {
     private func drawLabels(_ row: CommitRow, cursor start: CGFloat, mid: CGFloat, emphasized: Bool) {
         var cursor = start
 
-        for ref in row.commit.refs {
+        for ref in labels {
             cursor = drawBadge(ref, at: cursor, mid: mid, emphasized: emphasized) + 4
         }
 

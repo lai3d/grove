@@ -44,6 +44,6 @@ Estimates are Claude Code session time.
 |---|---|---|---|
 | 3.1 | ✅ Settings & icon | Settings window (git binary, pull mode, diff font size); app icon | 0.3h |
 | 3.2 | ✅ Submodules & worktrees | Listed in the sidebar, open in a new window | 0.5h |
-| 3.3 | ⬜ Large-repo performance | Offer `git commit-graph write`, fsmonitor; lazy ref badges; measure on linux.git-sized history | 0.5h |
+| 3.3 | ✅ Large-repo performance | `git log` runs undecorated (ref badges come from `for-each-ref`; `--decorate` made the first byte ~3× slower). "Optimize Repository" (suggested for 20k+ commits without one): commit-graph with changed-path filters, fsmonitor, untracked cache. Benchmark harness (`GROVE_BENCH_REPO=… swift test -c release --filter Benchmarks`): 300k commits stream + lay out in ~5.6 s, first rows ~1.3 s, status 0.1 s | 0.5h |
 | 3.4 | ⬜ GitHub / GitLab | Open commit / branch / PR in browser; create PR for current branch | 0.5h |
 | 3.5 | ⬜ Release pipeline | Developer ID signing, notarization, Sparkle updates, CI | 0.5h + **user must do this manually**: Apple Developer account, certificates — duration outside Claude's control |
