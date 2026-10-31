@@ -283,6 +283,11 @@ final class RepoModel {
             async let m = repo.submodules()
             let upstreamRemote = currentRef?.upstream?.split(separator: "/").first.map(String.init)
             async let h = repo.hostedRepo(preferring: upstreamRemote)
+            async let t = repo.commitTemplate()
+            async let recent = repo.recentMessages()
+            commitTemplate = await t
+            recentMessages = await recent
+            if commitMessage.isEmpty, !amend, let text = commitTemplate?.text { commitMessage = text }
             worktrees = (try? await w) ?? []
             submodules = (try? await m) ?? []
             hosted = await h
@@ -580,9 +585,14 @@ final class RepoModel {
         await write { try await $0.unstage(entries.map(\.change.path)) }
     }
 
+    /// `commit.template`: its text pre-fills the message box, its `#` lines are the placeholder.
+    private(set) var commitTemplate: CommitTemplate?
+    private(set) var recentMessages: [String] = []
+
     var canCommit: Bool {
-        !isCommitting && (amend || !stagedEntries.isEmpty)
-            && !commitMessage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let message = commitMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !isCommitting && (amend || !stagedEntries.isEmpty)
+            && !message.isEmpty && message != commitTemplate?.text  // an untouched template isn't a message
     }
 
     private func amendToggled() {
@@ -611,7 +621,7 @@ final class RepoModel {
             try await repo.commit(message: commitMessage, amend: amend, signOff: signOff)
             if let before { registerUndo(title, .moveHead(before, .soft, snapshot: nil)) }
             draftBeforeAmend = ""
-            commitMessage = ""
+            commitMessage = commitTemplate?.text ?? ""
             amend = false
             selectedCommitID = nil
             await refresh()

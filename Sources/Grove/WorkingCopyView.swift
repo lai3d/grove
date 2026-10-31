@@ -132,11 +132,14 @@ struct WorkingCopyView: View {
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.separator))
                 .overlay(alignment: .topLeading) {
                     if model.commitMessage.isEmpty {
-                        Text("Summary\n\nDescription").foregroundStyle(.tertiary).padding(.horizontal, 11).padding(.vertical, 6)
+                        Text(model.commitTemplate?.hint.nilIfEmpty ?? "Summary\n\nDescription").foregroundStyle(.tertiary).padding(.horizontal, 11).padding(.vertical, 6)
                             .allowsHitTesting(false)
                     }
                 }
                 .overlay(alignment: .topTrailing) { subjectCounter.padding(6) }
+            if let hint = model.commitTemplate?.hint, !hint.isEmpty, !model.commitMessage.isEmpty {
+                Text(hint).font(.caption).foregroundStyle(.tertiary).lineLimit(3)
+            }
             if model.amend && model.headIsPushed {
                 Label("HEAD is already pushed — amending rewrites published history.", systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -147,6 +150,7 @@ struct WorkingCopyView: View {
                     .help("Replace the last commit (loads its message)")
                 Toggle("Sign-off", isOn: $model.signOff)
                     .help("Add a Signed-off-by trailer")
+                recentMenu
                 Spacer()
                 Button {
                     Task { await model.commit() }
@@ -161,6 +165,31 @@ struct WorkingCopyView: View {
             .controlSize(.small)
         }
         .padding(10)
+    }
+
+    /// Reuse an earlier message (e.g. after a reset, or for the same change on another branch).
+    private var recentMenu: some View {
+        Menu {
+            ForEach(model.recentMessages, id: \.self) { m in
+                Button(Self.menuTitle(m)) { model.commitMessage = m }
+            }
+            if let t = model.commitTemplate?.text, !t.isEmpty {
+                Divider()
+                Button("Insert Template") { model.commitMessage = t }
+            }
+        } label: {
+            Image(systemName: "clock.arrow.circlepath")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Recent commit messages")
+        .disabled(model.recentMessages.isEmpty && model.commitTemplate == nil)
+    }
+
+    static func menuTitle(_ message: String) -> String {
+        let subject = message.prefix { $0 != "\n" }
+        return subject.count > 60 ? subject.prefix(59) + "…" : String(subject)
     }
 
     private var commitTitle: String {
@@ -178,4 +207,8 @@ struct WorkingCopyView: View {
                 .help("Summary line length (keep it under 50, wrap at 72)")
         }
     }
+}
+
+extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
