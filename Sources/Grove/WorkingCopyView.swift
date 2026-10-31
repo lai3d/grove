@@ -11,7 +11,8 @@ struct WorkingCopyView: View {
                     section("Staged", entries: model.stagedEntries, action: "Unstage", icon: "minus.circle") {
                         await model.unstage($0)
                     }
-                    section("Changes", entries: model.unstagedEntries, action: "Stage", icon: "plus.circle") {
+                    section("Changes", entries: model.unstagedEntries, action: "Stage", icon: "plus.circle",
+                            discard: { model.pendingDiscardFiles = $0 }) {
                         await model.stage($0)
                     }
                 }
@@ -31,6 +32,7 @@ struct WorkingCopyView: View {
     }
 
     private func section(_ title: String, entries: [ChangeEntry], action: String, icon: String,
+                         discard: (([ChangeEntry]) -> Void)? = nil,
                          perform: @escaping ([ChangeEntry]) async -> Void) -> some View {
         Section {
             ForEach(entries) { e in
@@ -43,6 +45,10 @@ struct WorkingCopyView: View {
                 }
                 .contextMenu {
                     Button(action) { Task { await perform([e]) } }
+                    if let discard {
+                        Divider()
+                        Button("Discard Changes…") { discard([e]) }
+                    }
                 }
             }
         } header: {
@@ -50,6 +56,11 @@ struct WorkingCopyView: View {
                 Text("\(title) (\(entries.count))")
                 Spacer()
                 if !entries.isEmpty {
+                    if let discard {
+                        Button("Discard All…") { discard(entries) }
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
                     Button("\(action) All") { Task { await perform(entries) } }
                         .buttonStyle(.borderless)
                         .font(.caption)

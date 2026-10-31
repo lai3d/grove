@@ -76,3 +76,12 @@ public struct CommitRow: Sendable, Identifiable {
         self.graph = graph
     }
 }
+
+public struct Stash: Sendable, Hashable, Identifiable {
+    /// "stash@{0}"
+    public let name: String
+    /// Commit id of the stash entry (stable across pushes / drops of other entries).
+    public let id: String
+    public let message: String
+    public let date: Date
+}

@@ -6,6 +6,7 @@ struct SidebarView: View {
     @State private var showBranches = true
     @State private var showRemotes = true
     @State private var showTags = true
+    @State private var showStashes = true
 
     var body: some View {
         List(selection: $model.sidebarSelection) {
@@ -27,6 +28,20 @@ struct SidebarView: View {
                 Section("Remotes", isExpanded: $showRemotes) {
                     grouped(remote, key: { $0.name.split(separator: "/").first.map(String.init) }, prefix: "remote",
                             icon: "cloud")
+                }
+            }
+            if !model.stashes.isEmpty {
+                Section("Stashes", isExpanded: $showStashes) {
+                    ForEach(model.stashes) { stash in
+                        HStack {
+                            Label(StashView.title(stash), systemImage: "archivebox").lineLimit(1)
+                            Spacer()
+                            Text(stash.date, format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        .tag(SidebarItem.stash(stash.id))
+                        .help(stash.message)
+                    }
                 }
             }
             let tags = filtered(.tag)
@@ -55,6 +70,12 @@ struct SidebarView: View {
         }
         .contextMenu(forSelectionType: SidebarItem.self) { items in
             if let ref = ref(in: items) { RefMenu(model: model, ref: ref) }
+            if case .stash(let id)? = items.first, let stash = model.stashes.first(where: { $0.id == id }) {
+                Button("Apply") { Task { await model.applyStash(stash, pop: false) } }
+                Button("Pop") { Task { await model.applyStash(stash, pop: true) } }
+                Divider()
+                Button("Drop…") { model.pendingDropStash = stash }
+            }
         } primaryAction: { items in
             if let ref = ref(in: items) { Task { await model.checkout(ref) } }
         }

@@ -57,6 +57,9 @@ struct GroveCommands: Commands {
             Button("Push") { model?.push() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(model == nil || model?.remoteOperation != nil)
+            Button("Stash Changes…") { model?.showStashSheet = true }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .disabled(model?.changes.isEmpty ?? true)
             Button("Show Activity") { model?.showActivity.toggle() }
                 .keyboardShortcut("l", modifiers: [.command, .option])
                 .disabled(model == nil)

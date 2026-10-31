@@ -6,6 +6,7 @@ enum SidebarItem: Hashable {
     case workingCopy
     case history
     case ref(String)
+    case stash(String)
 }
 
 enum BranchSheet: Identifiable {
@@ -88,6 +89,10 @@ final class RepoModel {
         didSet { sidebarSelectionChanged() }
     }
     var showsWorkingCopy: Bool { sidebarSelection == .workingCopy }
+    var selectedStash: Stash? {
+        guard case .stash(let id)? = sidebarSelection else { return nil }
+        return stashes.first { $0.id == id }
+    }
 
     // History
     private(set) var rows: [CommitRow] = []
@@ -119,6 +124,17 @@ final class RepoModel {
     private(set) var workingFileDiff: FileDiff?
     /// Selected line indexes per hunk in the working diff.
     var selectedLines: [Int: Set<Int>] = [:]
+    var pendingDiscardFiles: [ChangeEntry]?
+
+    // Stashes
+    private(set) var stashes: [Stash] = []
+    private(set) var stashFiles: [ChangedFile] = []
+    var selectedStashFileID: ChangedFile.ID? {
+        didSet { if oldValue != selectedStashFileID { loadStashDiff() } }
+    }
+    private(set) var stashDiff = ""
+    var showStashSheet = false
+    var pendingDropStash: Stash?
     var pendingDiscard: (hunk: Int, lines: Set<Int>?)?
     var selectedEntry: ChangeEntry? { entry(for: selectedChangeID) }
     var commitMessage = ""
@@ -203,7 +219,9 @@ final class RepoModel {
         async let refs = repo.refs()
         async let branch = repo.currentBranch()
         async let status = repo.status()
+        async let stashes = repo.stashes()
         do {
+            self.stashes = try await stashes
             self.refs = try await refs
             self.currentBranch = await branch
             self.changes = try await status
@@ -280,8 +298,14 @@ final class RepoModel {
     }
 
     private func sidebarSelectionChanged() {
-        guard case .ref(let id)? = sidebarSelection, let ref = refs.first(where: { $0.id == id }) else { return }
-        jump(to: ref.target)
+        switch sidebarSelection {
+        case .ref(let id)?:
+            if let ref = refs.first(where: { $0.id == id }) { jump(to: ref.target) }
+        case .stash?:
+            loadStash()
+        default:
+            break
+        }
     }
 
     func jump(to commitID: String) {
@@ -545,5 +569,58 @@ final class RepoModel {
         guard let diff = workingFileDiff else { return }
         await write { try await $0.apply(action, hunk: hunk, lines: lines, in: diff) }
         selectedLines = [:]
+    }
+
+    // MARK: Discard & stash
+
+    func discard(_ entries: [ChangeEntry]) async {
+        await write { try await $0.discard(entries.map(\.change)) }
+    }
+
+    func stashChanges(message: String, includeUntracked: Bool) async -> String? {
+        guard let repo else { return nil }
+        do {
+            try await repo.stash(message: message, includeUntracked: includeUntracked)
+        } catch {
+            return "\(error)"
+        }
+        await refreshRefsAndStatus()
+        return nil
+    }
+
+    func applyStash(_ stash: Stash, pop: Bool) async {
+        await write { try await $0.applyStash(stash, pop: pop) }
+        if pop { sidebarSelection = .workingCopy }
+    }
+
+    func dropStash(_ stash: Stash) async {
+        await write { try await $0.dropStash(stash) }
+        if selectedStash == nil, case .stash? = sidebarSelection { sidebarSelection = .history }
+    }
+
+    private func loadStash() {
+        guard let repo, let stash = selectedStash else { return }
+        stashFiles = []
+        stashDiff = ""
+        Task { [weak self] in
+            let files = (try? await repo.stashFiles(stash)) ?? []
+            guard let self, self.selectedStash?.id == stash.id else { return }
+            self.stashFiles = files
+            self.selectedStashFileID = files.first?.id
+            self.loadStashDiff()
+        }
+    }
+
+    private func loadStashDiff() {
+        guard let repo, let stash = selectedStash, let id = selectedStashFileID,
+              let file = stashFiles.first(where: { $0.id == id }) else {
+            stashDiff = ""
+            return
+        }
+        Task { [weak self] in
+            let text = (try? await repo.stashDiff(stash, file: file)) ?? ""
+            guard let self, self.selectedStashFileID == id else { return }
+            self.stashDiff = text
+        }
     }
 }

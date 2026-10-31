@@ -239,6 +239,67 @@ public actor Repository {
         args.append("-")
         _ = try await git.run(args, in: root, input: Data(patch.utf8))
     }
+
+    // MARK: Discard
+
+    /// Throws away unstaged changes: tracked files go back to their index version,
+    /// untracked files are deleted.
+    public func discard(_ changes: [FileChange]) async throws {
+        let untracked = changes.filter { $0.kind == .untracked }.map(\.path)
+        let tracked = changes.filter { $0.kind != .untracked }.map(\.path)
+        if !tracked.isEmpty { _ = try await git.run(["restore", "--worktree", "--"] + tracked, in: root) }
+        if !untracked.isEmpty { _ = try await git.run(["clean", "-f", "-q", "--"] + untracked, in: root) }
+    }
+
+    // MARK: Stashes
+
+    public nonisolated func stashes() async throws -> [Stash] {
+        let out = try await git.runString(["stash", "list", "--format=%gd%x1f%H%x1f%gs%x1f%ct"], in: root)
+        return out.split(separator: "\n").compactMap { line in
+            let f = line.split(separator: "\u{1f}", omittingEmptySubsequences: false).map(String.init)
+            guard f.count >= 4 else { return nil }
+            return Stash(name: f[0], id: f[1], message: f[2], date: Date(timeIntervalSince1970: TimeInterval(f[3]) ?? 0))
+        }
+    }
+
+    public func stash(message: String, includeUntracked: Bool) async throws {
+        var args = ["stash", "push"]
+        if includeUntracked { args.append("--include-untracked") }
+        if !message.isEmpty { args += ["-m", message] }
+        _ = try await git.run(args, in: root)
+    }
+
+    /// Resolves the entry's current `stash@{n}` from its commit id (indexes shift).
+    private func ref(of stash: Stash) async throws -> String {
+        guard let current = try await stashes().first(where: { $0.id == stash.id }) else {
+            throw GitError(arguments: ["stash"], exitCode: 1, stderr: "That stash no longer exists")
+        }
+        return current.name
+    }
+
+    public func applyStash(_ stash: Stash, pop: Bool) async throws {
+        _ = try await git.run(["stash", pop ? "pop" : "apply", try await ref(of: stash)], in: root)
+    }
+
+    public func dropStash(_ stash: Stash) async throws {
+        _ = try await git.run(["stash", "drop", "-q", try await ref(of: stash)], in: root)
+    }
+
+    public nonisolated func stashFiles(_ stash: Stash) async throws -> [ChangedFile] {
+        GitParse.nameStatus(try await git.run(["stash", "show", "--include-untracked", "-z", "--name-status", stash.id], in: root))
+    }
+
+    /// Patch for one file of a stash. Tracked changes are `stash^1..stash`; untracked
+    /// files live in the stash's third parent (a root commit).
+    public nonisolated func stashDiff(_ stash: Stash, file: ChangedFile) async throws -> String {
+        var paths = [file.path]
+        if let orig = file.origPath { paths.insert(orig, at: 0) }
+        let tracked = try await git.runString(["diff", "-M", "--no-ext-diff", "\(stash.id)^1", stash.id, "--"] + paths, in: root)
+        if !tracked.isEmpty { return tracked }
+        let hasUntracked = (try? await git.run(["rev-parse", "-q", "--verify", "\(stash.id)^3"], in: root)) != nil
+        guard hasUntracked else { return "" }
+        return try await git.runString(["show", "--format=", "--no-ext-diff", "\(stash.id)^3", "--", file.path], in: root)
+    }
 }
 
 extension GitError {

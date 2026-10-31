@@ -60,6 +60,11 @@ struct WelcomeView: View {
 struct RepoWindow: View {
     @State private var model: RepoModel
 
+    private var discardTitle: String {
+        guard let e = model.pendingDiscardFiles else { return "" }
+        return e.count == 1 ? "Discard changes to “\(e[0].change.path)”?" : "Discard changes to \(e.count) files?"
+    }
+
     init(url: URL) {
         _model = State(initialValue: RepoModel(url: url))
     }
@@ -71,6 +76,8 @@ struct RepoWindow: View {
         } detail: {
             if model.showsWorkingCopy {
                 WorkingCopyView(model: model)
+            } else if let stash = model.selectedStash {
+                StashView(model: model, stash: stash)
             } else {
                 HistoryView(model: model)
             }
@@ -87,6 +94,13 @@ struct RepoWindow: View {
                 if model.isLoadingLog {
                     ProgressView().controlSize(.small)
                 }
+            }
+            ToolbarItem {
+                Button { model.showStashSheet = true } label: {
+                    Label("Stash", systemImage: "archivebox")
+                }
+                .help("Stash Changes (⌥⌘S)")
+                .disabled(model.changes.isEmpty)
             }
             ToolbarItem {
                 Button { model.beginNewBranch() } label: {
@@ -109,6 +123,23 @@ struct RepoWindow: View {
         }
         .sheet(item: $model.branchSheet) { BranchNameSheet(model: model, sheet: $0) }
         .sheet(item: $model.credentialPrompt) { CredentialSheet(prompt: $0) }
+        .sheet(isPresented: $model.showStashSheet) { StashSheet(model: model) }
+        .confirmationDialog("Drop stash “\(model.pendingDropStash.map(StashView.title) ?? "")”?",
+                            isPresented: Binding(get: { model.pendingDropStash != nil }, set: { if !$0 { model.pendingDropStash = nil } })) {
+            Button("Drop", role: .destructive) {
+                if let s = model.pendingDropStash { Task { await model.dropStash(s) } }
+            }
+        } message: {
+            Text("Dropped stashes can only be recovered by their commit id.")
+        }
+        .confirmationDialog(discardTitle,
+                            isPresented: Binding(get: { model.pendingDiscardFiles != nil }, set: { if !$0 { model.pendingDiscardFiles = nil } })) {
+            Button("Discard", role: .destructive) {
+                if let e = model.pendingDiscardFiles { Task { await model.discard(e) } }
+            }
+        } message: {
+            Text("Unstaged changes are lost and untracked files are deleted. This can't be undone.")
+        }
         .confirmationDialog("Delete branch “\(model.pendingDelete?.name ?? "")”?",
                             isPresented: Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
