@@ -151,3 +151,54 @@ struct ActivityRow: View {
         }
     }
 }
+
+struct CredentialSheet: View {
+    let prompt: CredentialPrompt
+    @State private var answer = ""
+    @State private var answered = false
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let req = prompt.request
+        VStack(alignment: .leading, spacing: 12) {
+            Label(req.kind == .confirm ? "Confirm" : "Authentication Required",
+                  systemImage: req.kind == .confirm ? "questionmark.circle" : "key.fill")
+                .font(.headline)
+            Text(req.prompt)
+                .font(req.prompt.count > 120 ? .system(.callout, design: .monospaced) : .body)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+            switch req.kind {
+            case .secret:
+                SecureField("", text: $answer).textFieldStyle(.roundedBorder).onSubmit { finish(answer) }
+            case .text:
+                TextField("", text: $answer).textFieldStyle(.roundedBorder).onSubmit { finish(answer) }
+            case .confirm:
+                EmptyView()
+            }
+            HStack {
+                Spacer()
+                if req.kind == .confirm {
+                    Button("No", role: .cancel) { finish(req.confirmAnswer(false)) }.keyboardShortcut(.cancelAction)
+                    Button("Yes") { finish(req.confirmAnswer(true)) }.keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Cancel", role: .cancel) { finish(nil) }.keyboardShortcut(.cancelAction)
+                    Button("OK") { finish(answer) }.keyboardShortcut(.defaultAction)
+                }
+            }
+            if req.kind == .secret {
+                Text("HTTPS credentials are saved by git's credential helper (Keychain) once they work.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .onDisappear { if !answered { prompt.respond(nil) } }
+    }
+
+    private func finish(_ value: String?) {
+        answered = true
+        prompt.respond(value)
+        dismiss()
+    }
+}

@@ -54,9 +54,13 @@ public struct Git: Sendable {
     public let executable: URL
     /// Called (on a background queue) for every git process Grove runs.
     public var observer: (@Sendable (GitEvent) -> Void)?
+    /// Extra environment for every git process (e.g. askpass wiring).
+    public var environment: [String: String]
 
-    public init(executable: URL = Git.defaultExecutable(), observer: (@Sendable (GitEvent) -> Void)? = nil) {
+    public init(executable: URL = Git.defaultExecutable(), environment: [String: String] = [:],
+                observer: (@Sendable (GitEvent) -> Void)? = nil) {
         self.executable = executable
+        self.environment = environment
         self.observer = observer
     }
 
@@ -94,6 +98,7 @@ public struct Git: Sendable {
         // Apps launched from Finder get a minimal PATH; ssh/gpg/hooks need the usual tools.
         let path = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
         env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:" + path
+        env.merge(environment) { $1 }
         p.environment = env
         let box = ProcessBox(process: p)
         p.standardOutput = box.out

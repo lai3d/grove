@@ -6,6 +6,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .executable(name: "Grove", targets: ["Grove"]),
+        .executable(name: "grove-askpass", targets: ["grove-askpass"]),
         .library(name: "GroveCore", targets: ["GroveCore"]),
     ],
     targets: [
@@ -14,6 +15,8 @@ let package = Package(
         .target(name: "GroveCore"),
         // SwiftUI shell + AppKit heavy views (commit table, diff view).
         .executableTarget(name: "Grove", dependencies: ["GroveCore"]),
-        .testTarget(name: "GroveCoreTests", dependencies: ["GroveCore"]),
+        // GIT_ASKPASS / SSH_ASKPASS helper; ships next to the app binary.
+        .executableTarget(name: "grove-askpass", path: "Sources/GroveAskpass"),
+        .testTarget(name: "GroveCoreTests", dependencies: ["GroveCore", "grove-askpass"]),
     ]
 )

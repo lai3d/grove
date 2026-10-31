@@ -40,6 +40,24 @@ struct RemoteOperation {
     var fraction: Double?
 }
 
+/// A git / ssh prompt waiting for the user; `respond` must be called exactly once.
+@MainActor
+final class CredentialPrompt: Identifiable {
+    nonisolated let request: AskpassServer.Request
+    private var reply: ((String?) -> Void)?
+    nonisolated var id: UUID { request.id }
+
+    init(request: AskpassServer.Request, reply: @escaping (String?) -> Void) {
+        self.request = request
+        self.reply = reply
+    }
+
+    func respond(_ answer: String?) {
+        reply?(answer)
+        reply = nil
+    }
+}
+
 struct CommitDetail {
     let commit: Commit
     let message: String
@@ -112,6 +130,7 @@ final class RepoModel {
     private(set) var remoteOperation: RemoteOperation?
     private var remoteTask: Task<Void, Never>?
     private(set) var activity: [ActivityEntry] = []
+    var credentialPrompt: CredentialPrompt?
     var showActivity = false
     var pullMode: Repository.PullMode = Repository.PullMode(rawValue: UserDefaults.standard.string(forKey: "pullMode") ?? "")
         ?? .fastForwardOnly {
@@ -135,7 +154,17 @@ final class RepoModel {
     func load() async {
         guard repo == nil else { return }
         do {
-            let git = Git(observer: { [weak self] event in
+            let helper = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("grove-askpass")
+            let askpass = AskpassServer.shared.register(helper: helper) { [weak self] request in
+                await withCheckedContinuation { cont in
+                    Task { @MainActor in
+                        guard let self else { return cont.resume(returning: nil) }
+                        self.credentialPrompt?.respond(nil)
+                        self.credentialPrompt = CredentialPrompt(request: request) { cont.resume(returning: $0) }
+                    }
+                }
+            }
+            let git = Git(environment: askpass, observer: { [weak self] event in
                 Task { @MainActor in self?.record(event) }
             })
             let r = try await Repository.open(url, git: git)

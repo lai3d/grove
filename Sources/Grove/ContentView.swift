@@ -108,6 +108,7 @@ struct RepoWindow: View {
             }
         }
         .sheet(item: $model.branchSheet) { BranchNameSheet(model: model, sheet: $0) }
+        .sheet(item: $model.credentialPrompt) { CredentialSheet(prompt: $0) }
         .confirmationDialog("Delete branch “\(model.pendingDelete?.name ?? "")”?",
                             isPresented: Binding(get: { model.pendingDelete != nil }, set: { if !$0 { model.pendingDelete = nil } })) {
             Button("Delete", role: .destructive) {
