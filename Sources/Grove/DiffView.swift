@@ -41,8 +41,9 @@ struct DiffView: NSViewRepresentable {
     }
 
     static func highlight(_ raw: String) -> NSAttributedString {
-        let font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
-        let bold = NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold)
+        let size = UserDefaults.standard.object(forKey: "diffFontSize") as? Double ?? 12
+        let font = NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        let bold = NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
         var text = raw
         var truncated = false
         if text.count > maxCharacters {

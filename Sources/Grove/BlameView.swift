@@ -90,6 +90,7 @@ struct BlameRow: View {
     let startsBlock: Bool
     let age: Double
     let open: () -> Void
+    @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -101,13 +102,13 @@ struct BlameRow: View {
                 .onTapGesture(perform: open)
                 .help(line.isUncommitted ? "Not committed yet" : "\(line.summary)\n\(line.author) · \(line.date.formatted())\nClick to show in history")
             Text("\(line.lineNumber)")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: diffFontSize - 1, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 44, alignment: .trailing)
                 .padding(.trailing, 8)
                 .padding(.vertical, 1)
             Text(line.content.isEmpty ? " " : line.content)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: diffFontSize, design: .monospaced))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 1)
@@ -121,7 +122,7 @@ struct BlameRow: View {
                 if line.isUncommitted {
                     Text("Not committed yet").italic().foregroundStyle(.secondary)
                 } else {
-                    Text(String(line.commitID.prefix(7))).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
+                    Text(String(line.commitID.prefix(7))).font(.system(size: diffFontSize - 1, design: .monospaced)).foregroundStyle(.secondary)
                     Text(line.author).lineLimit(1)
                     Spacer(minLength: 4)
                     Text(line.date.formatted(date: .abbreviated, time: .omitted)).foregroundStyle(.secondary)

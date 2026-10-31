@@ -1,5 +1,7 @@
 # Grove
 
+<img src="Resources/AppIcon-1024.png" width="128" alt="Grove icon">
+
 A native Git client for macOS — SwiftUI shell, AppKit where it matters (commit graph, diffs), and the real `git` CLI underneath so hooks, credential helpers, signing and your `.gitconfig` just work.
 
 ## Layout
@@ -20,8 +22,9 @@ A native Git client for macOS — SwiftUI shell, AppKit where it matters (commit
 swift test                               # unit + end-to-end tests against temp repos
 swift run Grove ~/path/to/repo           # or GROVE_REPO=~/path/to/repo swift run Grove
 scripts/bundle.sh                        # build/Grove.app (ad-hoc signed)
+swift scripts/make-icon.swift            # regenerate Resources/AppIcon.icns
 ```
 
-`GROVE_GIT=/path/to/git` overrides the git binary (default: Homebrew git, then `/usr/bin/git`).
+`GROVE_GIT=/path/to/git` overrides the git binary (otherwise Settings ▸ General, else Homebrew git, then `/usr/bin/git`).
 
 Requires macOS 15+.

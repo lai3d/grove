@@ -144,6 +144,7 @@ struct SplitRowView: View {
     let row: SplitRow
     let styler: DiffStyler
     let words: [Int: [NSRange]]
+    @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -156,13 +157,13 @@ struct SplitRowView: View {
     private func side(_ line: DiffLine?, index: Int?, number: Int?) -> some View {
         HStack(alignment: .top, spacing: 0) {
             Text(number.map(String.init) ?? "")
-                .font(.system(size: 11, design: .monospaced))
+                .font(.system(size: diffFontSize - 1, design: .monospaced))
                 .foregroundStyle(.tertiary)
                 .frame(width: 40, alignment: .trailing)
                 .padding(.trailing, 6)
             if let line, let index {
                 Text(styler.text(line, changed: words[index] ?? []))
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(.system(size: diffFontSize, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {

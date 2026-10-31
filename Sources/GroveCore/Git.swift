@@ -68,8 +68,15 @@ public struct Git: Sendable {
         observer?(GitEvent(id: id, arguments: args, phase: phase))
     }
 
+    /// UserDefaults key for a user-chosen git binary (Settings).
+    public static let pathDefaultsKey = "gitPath"
+
     public static func defaultExecutable() -> URL {
         if let p = ProcessInfo.processInfo.environment["GROVE_GIT"], !p.isEmpty {
+            return URL(fileURLWithPath: p)
+        }
+        if let p = UserDefaults.standard.string(forKey: pathDefaultsKey), !p.isEmpty,
+           FileManager.default.isExecutableFile(atPath: p) {
             return URL(fileURLWithPath: p)
         }
         for p in ["/opt/homebrew/bin/git", "/usr/local/bin/git", "/usr/bin/git"]
@@ -77,6 +84,12 @@ public struct Git: Sendable {
             return URL(fileURLWithPath: p)
         }
         return URL(fileURLWithPath: "/usr/bin/git")
+    }
+
+    /// "git version 2.47.1" for this executable, nil if it can't run.
+    public func version() async -> String? {
+        let out = try? await runString(["--version"], in: FileManager.default.temporaryDirectory)
+        return out?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static let baseArguments = [

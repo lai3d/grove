@@ -26,6 +26,8 @@ struct GroveApp: App {
         }
         .windowToolbarStyle(.unified)
         .commands { GroveCommands() }
+
+        Settings { SettingsView() }
     }
 }
 

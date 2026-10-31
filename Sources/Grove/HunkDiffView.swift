@@ -112,13 +112,14 @@ struct DiffLineRow: View {
     let line: DiffLine
     let selected: Bool
     var text: AttributedString?
+    @AppStorage("diffFontSize") private var diffFontSize = 12.0
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             number(line.oldNumber)
             number(line.newNumber)
             Text(AttributedString(prefix) + (text ?? AttributedString(line.text)) + AttributedString(line.noNewline ? "  ⏎̸" : ""))
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: diffFontSize, design: .monospaced))
                 .foregroundStyle(line.kind == .context ? Color.primary.opacity(0.85) : Color.primary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 6)
@@ -150,7 +151,7 @@ struct DiffLineRow: View {
 
     private func number(_ n: Int?) -> some View {
         Text(n.map(String.init) ?? "")
-            .font(.system(size: 11, design: .monospaced))
+            .font(.system(size: diffFontSize - 1, design: .monospaced))
             .foregroundStyle(.tertiary)
             .frame(width: 40, alignment: .trailing)
             .padding(.trailing, 4)

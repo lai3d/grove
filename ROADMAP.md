@@ -42,7 +42,7 @@ Estimates are Claude Code session time.
 
 | # | Item | Notes | Est. |
 |---|---|---|---|
-| 3.1 | ⬜ Settings & icon | Settings window (git binary, pull mode, diff font size); app icon | 0.3h |
+| 3.1 | ✅ Settings & icon | Settings window (git binary, pull mode, diff font size); app icon | 0.3h |
 | 3.2 | ⬜ Submodules & worktrees | Listed in the sidebar, open in a new window | 0.5h |
 | 3.3 | ⬜ Large-repo performance | Offer `git commit-graph write`, fsmonitor; lazy ref badges; measure on linux.git-sized history | 0.5h |
 | 3.4 | ⬜ GitHub / GitLab | Open commit / branch / PR in browser; create PR for current branch | 0.5h |
