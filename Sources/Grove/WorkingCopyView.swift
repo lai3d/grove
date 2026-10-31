@@ -25,7 +25,7 @@ struct WorkingCopyView: View {
             }
             .frame(minWidth: 280, idealWidth: 360, maxWidth: 640)
 
-            DiffView(text: model.workingDiff)
+            WorkingDiffPane(model: model)
                 .frame(minWidth: 320)
         }
     }

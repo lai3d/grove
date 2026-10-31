@@ -36,7 +36,23 @@ struct SidebarView: View {
                 }
             }
         }
-        .searchable(text: $model.sidebarFilter, placement: .sidebar, prompt: "Filter branches")
+        // A plain filter bar (Xcode-style): `.searchable` in a sidebar hides non-matching sections while searching.
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack(spacing: 4) {
+                Image(systemName: "line.3.horizontal.decrease.circle").foregroundStyle(.secondary)
+                TextField("Filter branches", text: $model.sidebarFilter)
+                    .textFieldStyle(.plain)
+                if !model.sidebarFilter.isEmpty {
+                    Button { model.sidebarFilter = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(.bar)
+            .overlay(alignment: .top) { Divider() }
+        }
         .contextMenu(forSelectionType: SidebarItem.self) { items in
             if let ref = ref(in: items) { RefMenu(model: model, ref: ref) }
         } primaryAction: { items in

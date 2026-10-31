@@ -223,6 +223,22 @@ public actor Repository {
         }
         _ = try await git.runWithProgress(args, in: root, progress: progress)
     }
+
+    // MARK: Partial staging
+
+    public enum HunkAction: Sendable { case stage, unstage, discard }
+
+    /// Applies one hunk (or selected lines of it). `diff` must come from the matching side:
+    /// the unstaged diff for `.stage` / `.discard`, the staged diff for `.unstage`.
+    public func apply(_ action: HunkAction, hunk: Int, lines: Set<Int>? = nil, in diff: FileDiff) async throws {
+        let reverse = action != .stage
+        guard let patch = diff.patch(hunk: hunk, selecting: lines, reverse: reverse) else { return }
+        var args = ["apply", "--recount", "--whitespace=nowarn"]
+        if action != .discard { args.append("--cached") }
+        if reverse { args.append("--reverse") }
+        args.append("-")
+        _ = try await git.run(args, in: root, input: Data(patch.utf8))
+    }
 }
 
 extension GitError {

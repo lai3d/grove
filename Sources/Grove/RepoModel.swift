@@ -115,6 +115,12 @@ final class RepoModel {
         didSet { if oldValue != selectedChangeID { loadWorkingDiff() } }
     }
     private(set) var workingDiff = ""
+    /// Parsed `workingDiff` (first file), for hunk / line actions.
+    private(set) var workingFileDiff: FileDiff?
+    /// Selected line indexes per hunk in the working diff.
+    var selectedLines: [Int: Set<Int>] = [:]
+    var pendingDiscard: (hunk: Int, lines: Set<Int>?)?
+    var selectedEntry: ChangeEntry? { entry(for: selectedChangeID) }
     var commitMessage = ""
     private(set) var isCommitting = false
 
@@ -201,8 +207,11 @@ final class RepoModel {
             self.refs = try await refs
             self.currentBranch = await branch
             self.changes = try await status
-            if let id = selectedChangeID, !(stagedEntries + unstagedEntries).contains(where: { $0.id == id }) {
-                selectedChangeID = nil
+            let all = stagedEntries + unstagedEntries
+            if let id = selectedChangeID, !all.contains(where: { $0.id == id }) {
+                // Fully staged / unstaged: follow the file to the other list.
+                let flipped = (id.hasPrefix("S:") ? "U:" : "S:") + id.dropFirst(2)
+                selectedChangeID = all.contains { $0.id == flipped } ? flipped : nil
             } else {
                 loadWorkingDiff()
             }
@@ -328,12 +337,16 @@ final class RepoModel {
     private func loadWorkingDiff() {
         guard let repo, let e = entry(for: selectedChangeID) else {
             workingDiff = ""
+            workingFileDiff = nil
+            selectedLines = [:]
             return
         }
         Task { [weak self] in
             let text = (try? await repo.workingDiff(of: e.change, staged: e.staged)) ?? ""
             guard let self, self.selectedChangeID == e.id else { return }
+            if text != self.workingDiff { self.selectedLines = [:] }
             self.workingDiff = text
+            self.workingFileDiff = DiffParser.parse(text).first
         }
     }
 
@@ -525,4 +538,12 @@ final class RepoModel {
     }
 
     func clearActivity() { activity.removeAll { !$0.isRunning } }
+
+    // MARK: Hunks
+
+    func applyHunk(_ action: Repository.HunkAction, hunk: Int, lines: Set<Int>?) async {
+        guard let diff = workingFileDiff else { return }
+        await write { try await $0.apply(action, hunk: hunk, lines: lines, in: diff) }
+        selectedLines = [:]
+    }
 }
