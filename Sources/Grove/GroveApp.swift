@@ -64,6 +64,13 @@ struct GroveCommands: Commands {
                 .keyboardShortcut("l", modifiers: [.command, .option])
                 .disabled(model == nil)
             Divider()
+            Button("Filter History…") {
+                model?.sidebarSelection = .history
+                model?.focusFilterToken += 1
+            }
+            .keyboardShortcut("f")
+            .disabled(model == nil)
+            Divider()
             Button("Working Copy") { model?.sidebarSelection = .workingCopy }
                 .keyboardShortcut("1")
                 .disabled(model == nil)

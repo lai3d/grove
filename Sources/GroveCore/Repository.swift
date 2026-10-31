@@ -57,10 +57,14 @@ public actor Repository {
     }
 
     /// Raw `git log -z` records for all refs, in topo order; parse with `GitParse.commit`.
-    public nonisolated func logRecords(includeHEAD: Bool) -> AsyncThrowingStream<Data, Error> {
+    /// With `path`, only commits touching it, with parents rewritten (`--parents`) so the
+    /// graph of the simplified history stays connected.
+    public nonisolated func logRecords(includeHEAD: Bool, path: String? = nil) -> AsyncThrowingStream<Data, Error> {
         var args = ["log", "-z", "--topo-order", "--decorate=full", GitParse.logFormat]
+        if path != nil { args.append("--parents") }
         if includeHEAD { args.append("HEAD") }
         args += ["--branches", "--remotes", "--tags"]
+        if let path { args += ["--", path] }
         return git.records(args, in: root)
     }
 

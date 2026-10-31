@@ -205,9 +205,12 @@ struct HistoryView: View {
 
     var body: some View {
         VSplitView {
-            CommitTable(model: model, rowCount: model.rows.count, generation: model.logGeneration,
-                        selectedID: model.selectedCommitID, scrollToken: model.scrollToken)
-                .frame(minHeight: 160, idealHeight: 380)
+            VStack(spacing: 0) {
+                HistoryFilterBar(model: model)
+                CommitTable(model: model, rowCount: model.displayCount, generation: model.logGeneration,
+                            selectedID: model.selectedCommitID, scrollToken: model.scrollToken)
+            }
+            .frame(minHeight: 160, idealHeight: 380)
             HSplitView {
                 CommitDetailPane(model: model)
                     .frame(minWidth: 240, idealWidth: 340, maxWidth: 600)
@@ -247,6 +250,13 @@ struct CommitDetailPane: View {
                 Divider()
                 List(d.files, selection: $model.selectedFileID) { file in
                     FileRow(letter: file.letter, path: file.path, origPath: file.origPath)
+                        .contextMenu {
+                            Button("Show History of “\((file.path as NSString).lastPathComponent)”") { model.showHistory(of: file.path) }
+                            Button("Copy Path") {
+                                NSPasteboard.general.clearContents()
+                                NSPasteboard.general.setString(file.path, forType: .string)
+                            }
+                        }
                 }
                 .listStyle(.inset)
             }
@@ -294,5 +304,49 @@ struct FileRow: View {
         case "U": .orange
         default: .blue
         }
+    }
+}
+
+struct HistoryFilterBar: View {
+    @Bindable var model: RepoModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Filter by message, author, SHA or ref", text: $model.historyFilter)
+                .textFieldStyle(.plain)
+                .focused($focused)
+                .autocorrectionDisabled()
+                .onExitCommand { model.historyFilter = "" }
+            if let path = model.pathFilter {
+                HStack(spacing: 3) {
+                    Image(systemName: "doc")
+                    Text(path).lineLimit(1).truncationMode(.middle)
+                    Button { model.pathFilter = nil } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.borderless)
+                        .help("Show all history")
+                }
+                .font(.caption)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.accentColor.opacity(0.15)))
+                .frame(maxWidth: 260)
+            }
+            if model.isFiltering || model.pathFilter != nil {
+                Text("\(model.displayCount) commit\(model.displayCount == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            if !model.historyFilter.isEmpty {
+                Button { model.historyFilter = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.bar)
+        .overlay(alignment: .bottom) { Divider() }
+        .onChange(of: model.focusFilterToken) { focused = true }
     }
 }

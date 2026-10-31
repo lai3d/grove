@@ -64,7 +64,7 @@ struct CommitTable: NSViewRepresentable {
             c.count = rowCount
             table.noteNumberOfRowsChanged()
         }
-        if let id = selectedID, let row = model.rowIndex[id], row < c.count {
+        if let id = selectedID, let row = model.displayIndex(of: id), row < c.count {
             if table.selectedRow != row {
                 c.isSyncingSelection = true
                 table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
@@ -108,11 +108,12 @@ struct CommitTable: NSViewRepresentable {
         func numberOfRows(in tableView: NSTableView) -> Int { count }
 
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-            guard let id = tableColumn?.identifier, row < model.rows.count else { return nil }
-            let item = model.rows[row]
+            guard let id = tableColumn?.identifier, row < model.displayCount else { return nil }
+            let item = model.displayRow(row)
             if id == Column.description {
                 let cell = tableView.makeView(withIdentifier: id, owner: nil) as? CommitGraphCell
                     ?? CommitGraphCell(identifier: id)
+                cell.showsGraph = !model.isFiltering
                 cell.row = item
                 return cell
             }
@@ -133,8 +134,8 @@ struct CommitTable: NSViewRepresentable {
 
         func menuNeedsUpdate(_ menu: NSMenu) {
             menu.removeAllItems()
-            guard let table, table.clickedRow >= 0, table.clickedRow < model.rows.count else { return }
-            let commit = model.rows[table.clickedRow].commit
+            guard let table, table.clickedRow >= 0, table.clickedRow < model.displayCount else { return }
+            let commit = model.displayRow(table.clickedRow).commit
             func item(_ title: String, _ action: @escaping @MainActor () -> Void) {
                 let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
                 i.target = self
@@ -180,7 +181,7 @@ struct CommitTable: NSViewRepresentable {
         func tableViewSelectionDidChange(_ notification: Notification) {
             guard !isSyncingSelection, let table else { return }
             let row = table.selectedRow
-            model.selectedCommitID = row >= 0 && row < model.rows.count ? model.rows[row].id : nil
+            model.selectedCommitID = row >= 0 && row < model.displayCount ? model.displayRow(row).id : nil
         }
     }
 }
@@ -217,6 +218,8 @@ final class CommitGraphCell: NSTableCellView {
     var row: CommitRow? {
         didSet { needsDisplay = true; toolTip = row?.commit.subject }
     }
+    /// Off while filtering: lanes of a filtered list would be misleading.
+    var showsGraph = true
 
     static let laneWidth: CGFloat = 14
     static let leftPad: CGFloat = 10
@@ -263,9 +266,18 @@ final class CommitGraphCell: NSTableCellView {
             Self.color(s.color).setStroke()
             p.stroke()
         }
-        for s in g.top { stroke(s, y0: 0, y1: mid) }
-        for s in g.bottom { stroke(s, y0: mid, y1: h) }
+        let emphasized = backgroundStyle == .emphasized
+        var cursor: CGFloat = 8
+        if showsGraph {
+            for s in g.top { stroke(s, y0: 0, y1: mid) }
+            for s in g.bottom { stroke(s, y0: mid, y1: h) }
+            drawNode(row, g, mid: mid)
+            cursor = Self.x(g.width - 1) + Self.laneWidth / 2 + 8
+        }
+        drawLabels(row, cursor: cursor, mid: mid, emphasized: emphasized)
+    }
 
+    private func drawNode(_ row: CommitRow, _ g: GraphRow, mid: CGFloat) {
         let r: CGFloat = row.commit.isMerge ? 3.5 : 4.5
         let dot = NSBezierPath(ovalIn: NSRect(x: Self.x(g.lane) - r, y: mid - r, width: r * 2, height: r * 2))
         if row.commit.isMerge {
@@ -278,9 +290,10 @@ final class CommitGraphCell: NSTableCellView {
             Self.color(g.color).setFill()
             dot.fill()
         }
+    }
 
-        let emphasized = backgroundStyle == .emphasized
-        var cursor = Self.x(g.width - 1) + Self.laneWidth / 2 + 8
+    private func drawLabels(_ row: CommitRow, cursor start: CGFloat, mid: CGFloat, emphasized: Bool) {
+        var cursor = start
 
         for ref in row.commit.refs {
             cursor = drawBadge(ref, at: cursor, mid: mid, emphasized: emphasized) + 4

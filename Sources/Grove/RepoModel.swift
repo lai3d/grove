@@ -102,6 +102,28 @@ final class RepoModel {
     /// Bumped to ask the table to scroll to the selected commit.
     private(set) var scrollToken = 0
     private(set) var isLoadingLog = false
+
+    // History filtering
+    var historyFilter = "" {
+        didSet { if oldValue != historyFilter { applyFilter() } }
+    }
+    /// Path-limited history ("Show History of File").
+    var pathFilter: String? {
+        didSet { if oldValue != pathFilter { reloadLog() } }
+    }
+    /// Indexes into `rows` that match `historyFilter`; nil = not filtering.
+    private(set) var filtered: [Int]?
+    private var filteredPosition: [Int: Int] = [:]
+    var focusFilterToken = 0
+    var isFiltering: Bool { filtered != nil }
+    var displayCount: Int { filtered?.count ?? rows.count }
+
+    func displayRow(_ i: Int) -> CommitRow { filtered.map { rows[$0[i]] } ?? rows[i] }
+
+    func displayIndex(of id: String) -> Int? {
+        guard let i = rowIndex[id] else { return nil }
+        return filtered == nil ? i : filteredPosition[i]
+    }
     private(set) var refs: [Ref] = []
     private(set) var currentBranch: String?
 
@@ -259,15 +281,17 @@ final class RepoModel {
         // Old rows stay on screen until the first new batch arrives (no flicker on refresh).
         logRequest += 1
         let request = logRequest
+        let path = pathFilter
         isLoadingLog = true
         logTask = Task.detached(priority: .userInitiated) { [weak self] in
             let head = await repo.headID()
-            var layout = GraphLayout(mainline: head)
+            // HEAD may not touch `path`, and would then never arrive to claim lane 0.
+            var layout = GraphLayout(mainline: path == nil ? head : nil)
             var batch: [CommitRow] = []
             var flushAt = 300  // small first batch: paint fast, then go big
             var first = true
             do {
-                for try await record in repo.logRecords(includeHEAD: head != nil) {
+                for try await record in repo.logRecords(includeHEAD: head != nil, path: path) {
                     guard let c = GitParse.commit(record) else { continue }
                     batch.append(CommitRow(commit: c, graph: layout.add(id: c.id, parents: c.parents)))
                     if batch.count >= flushAt {
@@ -291,17 +315,58 @@ final class RepoModel {
         if first {
             rows = batch
             rowIndex = Dictionary(uniqueKeysWithValues: batch.enumerated().map { ($1.id, $0) })
+            if filtered != nil { filtered = []; filteredPosition = [:] }
+            extendFilter(from: 0)
             logGeneration += 1
         } else {
             let base = rows.count
             for (i, row) in batch.enumerated() { rowIndex[row.id] = base + i }
             rows.append(contentsOf: batch)
+            extendFilter(from: base)
         }
         if first || done, selectedCommitID.map({ rowIndex[$0] == nil }) ?? true {
             // Selection vanished (amend, reset…) or never existed: pick the newest commit.
             if done || selectedCommitID == nil { selectedCommitID = rows.first?.id }
         }
         if done { isLoadingLog = false }
+    }
+
+    private func applyFilter() {
+        let q = historyFilter.trimmingCharacters(in: .whitespaces)
+        if q.isEmpty {
+            filtered = nil
+            filteredPosition = [:]
+        } else {
+            filtered = []
+            filteredPosition = [:]
+            extendFilter(from: 0)
+        }
+        logGeneration += 1
+        if let id = selectedCommitID, displayIndex(of: id) != nil { scrollToken += 1 }
+    }
+
+    private func extendFilter(from start: Int) {
+        guard filtered != nil else { return }
+        let q = historyFilter.trimmingCharacters(in: .whitespaces)
+        let isHex = q.count >= 4 && q.allSatisfy(\.isHexDigit)
+        for i in start..<rows.count {
+            let c = rows[i].commit
+            let hit = c.subject.localizedCaseInsensitiveContains(q)
+                || c.authorName.localizedCaseInsensitiveContains(q)
+                || c.authorEmail.localizedCaseInsensitiveContains(q)
+                || (isHex && c.id.hasPrefix(q.lowercased()))
+                || c.refs.contains { $0.name.localizedCaseInsensitiveContains(q) }
+            if hit {
+                filteredPosition[i] = filtered!.count
+                filtered!.append(i)
+            }
+        }
+    }
+
+    func showHistory(of path: String) {
+        historyFilter = ""
+        pathFilter = path
+        sidebarSelection = .history
     }
 
     private func logFailed(_ error: Error, request: Int) {

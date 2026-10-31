@@ -120,6 +120,22 @@ import Testing
         #expect(try await repo.status().first { $0.path == "tracked.txt" }?.isStaged == false)
     }
 
+    @Test func pathLimitedLogKeepsGraphConnected() async throws {
+        for (i, file) in ["a", "b", "a", "b", "a"].enumerated() {
+            try write("\(file).txt", "\(i)\n")
+            try await sh("add", ".")
+            try await sh("commit", "-qm", "c\(i) \(file)")
+        }
+        let repo = try await Repository.open(dir)
+        var commits: [Commit] = []
+        for try await r in repo.logRecords(includeHEAD: true, path: "a.txt") {
+            if let c = GitParse.commit(r) { commits.append(c) }
+        }
+        #expect(commits.map(\.subject) == ["c4 a", "c2 a", "c0 a"])
+        // Parents are rewritten to the previous commit touching a.txt.
+        #expect(commits[0].parents == [commits[1].id] && commits[1].parents == [commits[2].id])
+    }
+
     @Test func amendAndSignOff() async throws {
         let repo = try await Repository.open(dir)
         try write("a.txt", "1\n")

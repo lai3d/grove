@@ -57,6 +57,7 @@ struct SidebarView: View {
                 Image(systemName: "line.3.horizontal.decrease.circle").foregroundStyle(.secondary)
                 TextField("Filter branches", text: $model.sidebarFilter)
                     .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
                 if !model.sidebarFilter.isEmpty {
                     Button { model.sidebarFilter = "" } label: { Image(systemName: "xmark.circle.fill") }
                         .buttonStyle(.borderless)
