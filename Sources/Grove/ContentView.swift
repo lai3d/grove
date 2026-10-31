@@ -188,6 +188,7 @@ struct RepoWindow: View {
         .sheet(item: $model.blameTarget) { BlameView(model: model, target: $0) }
         .sheet(item: $model.rebaseBase) { InteractiveRebaseSheet(model: model, base: $0) }
         .sheet(item: $model.worktreeSheet) { WorktreeSheet(model: model, ref: $0) }
+        .sheet(isPresented: $model.showPullRequestSheet) { PullRequestSheet(model: model) }
         .onChange(of: model.openRequest) {
             if let url = model.openRequest {
                 openWindow(value: url)

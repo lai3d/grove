@@ -77,6 +77,11 @@ struct GroveCommands: Commands {
             Button("Push") { model?.push() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(model == nil || model?.remoteOperation != nil)
+            Button(model?.hosted?.host == .gitlab ? "Check Out Merge Request…" : "Check Out Pull Request…") {
+                model?.showPullRequestSheet = true
+            }
+            .keyboardShortcut("p", modifiers: [.command, .option])
+            .disabled(model?.hosted?.pullRequestRef(1) == nil || model?.remoteOperation != nil)
             Button("Stash Changes…") { model?.showStashSheet = true }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(model?.changes.isEmpty ?? true)

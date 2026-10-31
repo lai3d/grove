@@ -111,7 +111,11 @@ extension Repository {
     public nonisolated func hostedRepo(preferring remote: String? = nil) async -> HostedRepo? {
         guard let all = try? await remotes(), !all.isEmpty else { return nil }
         let name = [remote, "origin"].compactMap { $0 }.first(where: all.contains) ?? all[0]
-        guard let url = try? await git.runString(["remote", "get-url", name], in: root) else { return nil }
+        // The configured URL, not `get-url`'s: `url.<base>.insteadOf` rewrites (mirrors, ssh ↔ https)
+        // shouldn't hide which host the repository lives on.
+        let configured = try? await git.runString(["config", "--get", "remote.\(name).url"], in: root)
+        let resolved = configured == nil ? try? await git.runString(["remote", "get-url", name], in: root) : nil
+        guard let url = configured ?? resolved else { return nil }
         return HostedRepo(remoteURL: url, remote: name)
     }
 }

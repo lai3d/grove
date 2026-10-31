@@ -646,6 +646,20 @@ final class RepoModel {
         if await perform({ try await $0.checkout(ref) }), let before { registerUndo("Checkout", .switchTo(before)) }
     }
 
+    // MARK: Pull requests
+
+    var showPullRequestSheet = false
+
+    /// Fetches pull / merge request `number` into `pr/N` (`mr/N`) and switches to it.
+    func checkOutPullRequest(_ number: Int) async {
+        guard let hosted, let ref = hosted.pullRequestRef(number) else { return }
+        let branch = hosted.pullRequestBranch(number)
+        let before = await position()
+        runRemote("Fetching #\(number)", undo: before.map { ("Check Out \(branch)", .switchTo($0)) }) { repo, progress in
+            try await repo.checkOutRemoteRef(ref, from: hosted.remote, as: branch, progress: progress)
+        }
+    }
+
     func checkoutDetached(_ commitID: String) async {
         let before = await position()
         if await perform({ try await $0.checkoutDetached(commitID) }), let before { registerUndo("Checkout", .switchTo(before)) }
