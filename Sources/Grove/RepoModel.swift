@@ -69,6 +69,8 @@ final class RepoModel {
     private(set) var isCommitting = false
 
     private var logTask: Task<Void, Never>?
+    private var logRequest = 0
+    @ObservationIgnored private var watcher: RepositoryWatcher?
     private var detailTask: Task<Void, Never>?
     private var diffTask: Task<Void, Never>?
 
@@ -86,6 +88,9 @@ final class RepoModel {
             let r = try await Repository.open(url)
             repo = r
             RecentRepositories.add(r.root)
+            watcher = r.watch { [weak self] change in
+                Task { @MainActor in await self?.filesChanged(change) }
+            }
             await refresh()
         } catch {
             errorMessage = "\(error)"
@@ -95,6 +100,14 @@ final class RepoModel {
     func refresh() async {
         await refreshRefsAndStatus()
         reloadLog()
+    }
+
+    private func filesChanged(_ change: RepositoryWatcher.Change) async {
+        if change.contains(.refs) {
+            await refresh()
+        } else {
+            await refreshRefsAndStatus()
+        }
     }
 
     func refreshRefsAndStatus() async {
@@ -121,17 +134,16 @@ final class RepoModel {
     private func reloadLog() {
         guard let repo else { return }
         logTask?.cancel()
-        let previousSelection = selectedCommitID
-        rows = []
-        rowIndex = [:]
-        logGeneration += 1
+        // Old rows stay on screen until the first new batch arrives (no flicker on refresh).
+        logRequest += 1
+        let request = logRequest
         isLoadingLog = true
-        let generation = logGeneration
         logTask = Task.detached(priority: .userInitiated) { [weak self] in
             let head = await repo.headID()
             var layout = GraphLayout(mainline: head)
             var batch: [CommitRow] = []
             var flushAt = 300  // small first batch: paint fast, then go big
+            var first = true
             do {
                 for try await record in repo.logRecords(includeHEAD: head != nil) {
                     guard let c = GitParse.commit(record) else { continue }
@@ -140,35 +152,38 @@ final class RepoModel {
                         let b = batch
                         batch.removeAll(keepingCapacity: true)
                         flushAt = 5000
-                        await self?.append(b, generation: generation, restoring: previousSelection)
+                        await self?.receive(b, request: request, first: first, done: false)
+                        first = false
                     }
                 }
-                await self?.append(batch, generation: generation, restoring: previousSelection, done: true)
+                await self?.receive(batch, request: request, first: first, done: true)
             } catch is CancellationError {
             } catch {
-                await self?.logFailed(error, generation: generation)
+                await self?.logFailed(error, request: request)
             }
         }
     }
 
-    private func append(_ batch: [CommitRow], generation: Int, restoring previous: String?, done: Bool = false) {
-        guard generation == logGeneration else { return }
-        let base = rows.count
-        for (i, row) in batch.enumerated() { rowIndex[row.id] = base + i }
-        rows.append(contentsOf: batch)
-        if selectedCommitID == nil || base == 0 {
-            if let previous, rowIndex[previous] != nil {
-                selectedCommitID = previous
-                if base == 0 { loadCommitDetail() }
-            } else if base == 0 {
-                selectedCommitID = rows.first?.id
-            }
+    private func receive(_ batch: [CommitRow], request: Int, first: Bool, done: Bool) {
+        guard request == logRequest else { return }
+        if first {
+            rows = batch
+            rowIndex = Dictionary(uniqueKeysWithValues: batch.enumerated().map { ($1.id, $0) })
+            logGeneration += 1
+        } else {
+            let base = rows.count
+            for (i, row) in batch.enumerated() { rowIndex[row.id] = base + i }
+            rows.append(contentsOf: batch)
+        }
+        if first || done, selectedCommitID.map({ rowIndex[$0] == nil }) ?? true {
+            // Selection vanished (amend, reset…) or never existed: pick the newest commit.
+            if done || selectedCommitID == nil { selectedCommitID = rows.first?.id }
         }
         if done { isLoadingLog = false }
     }
 
-    private func logFailed(_ error: Error, generation: Int) {
-        guard generation == logGeneration else { return }
+    private func logFailed(_ error: Error, request: Int) {
+        guard request == logRequest else { return }
         isLoadingLog = false
         errorMessage = "\(error)"
     }

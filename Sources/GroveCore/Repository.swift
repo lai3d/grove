@@ -6,16 +6,33 @@ import Foundation
 public actor Repository {
     public nonisolated let root: URL
     public nonisolated let git: Git
+    /// `.git` of this working tree, and the common dir holding refs (differs for linked worktrees).
+    public nonisolated let gitDir: URL
+    public nonisolated let commonDir: URL
 
-    init(root: URL, git: Git) {
+    init(root: URL, gitDir: URL, commonDir: URL, git: Git) {
         self.root = root
+        self.gitDir = gitDir
+        self.commonDir = commonDir
         self.git = git
     }
 
     public static func open(_ url: URL, git: Git = Git()) async throws -> Repository {
-        let top = try await git.runString(["rev-parse", "--show-toplevel"], in: url)
-            .trimmingCharacters(in: .newlines)
-        return Repository(root: URL(fileURLWithPath: top), git: git)
+        let out = try await git.runString(["rev-parse", "--path-format=absolute", "--show-toplevel",
+                                           "--absolute-git-dir", "--git-common-dir"], in: url)
+        let lines = out.split(separator: "\n").map(String.init)
+        guard lines.count >= 3 else {
+            throw GitError(arguments: ["rev-parse"], exitCode: 0, stderr: "unexpected rev-parse output: \(out)")
+        }
+        return Repository(root: URL(fileURLWithPath: lines[0]), gitDir: URL(fileURLWithPath: lines[1]),
+                          commonDir: URL(fileURLWithPath: lines[2]), git: git)
+    }
+
+    /// Starts watching this repository; keep the returned watcher alive.
+    public nonisolated func watch(_ handler: @escaping @Sendable (RepositoryWatcher.Change) -> Void) -> RepositoryWatcher {
+        let w = RepositoryWatcher(root: root, gitDirs: [gitDir, commonDir], handler: handler)
+        w.start()
+        return w
     }
 
     public nonisolated var name: String { root.lastPathComponent }
