@@ -312,6 +312,7 @@ final class RepoModel {
             self.decorations = GitParse.decorations(refs: self.refs, head: await repo.headID(), currentBranch: self.currentBranch)
             self.changes = try await status
             self.operation = repo.operation()
+            self.bisect = await repo.bisectState()
             noteLFS(self.changes.map(\.path))
             let all = stagedEntries + unstagedEntries + conflictEntries
             if let id = selectedChangeID, !all.contains(where: { $0.id == id }) {
@@ -914,6 +915,27 @@ final class RepoModel {
     func skipOperation() async {
         guard let op = operation else { return }
         await performStepping { try await $0.skipOperation(op) }
+    }
+
+    // MARK: Bisect
+
+    private(set) var bisect: BisectState?
+
+    /// Starts a session (if needed) and marks `commit`; git checks out the next commit to test.
+    func bisect(_ mark: BisectState.Mark, _ commit: String? = nil) async {
+        let running = bisect != nil
+        await perform { repo in
+            if !running { try await repo.bisectStart() }
+            try await repo.bisect(mark, commit)
+        }
+        if let c = bisect?.culprit { revealInHistory(c) }
+    }
+
+    func bisectReset() async { await perform { try await $0.bisectReset() } }
+
+    func revealInHistory(_ commitID: String) {
+        if sidebarSelection != .history { sidebarSelection = .history }
+        jump(to: commitID)
     }
 
     func resolve(_ entry: ChangeEntry, taking side: Repository.ConflictSide) async {

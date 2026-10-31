@@ -158,6 +158,19 @@ struct CommitTable: NSViewRepresentable {
                 item("Rebase “\(branch)” onto Here") { Task { await model.rebase(onto: commit.id) } }
                 item("Interactive Rebase of Later Commits…") { model.rebaseBase = commit }
             }
+            let bisect = NSMenuItem(title: "Bisect", action: nil, keyEquivalent: "")
+            let bsub = NSMenu()
+            let running = model.bisect != nil
+            for (mark, title) in [(BisectState.Mark.bad, running ? "Mark as Bad" : "Start Bisect — This Commit Is Bad"),
+                                  (.good, running ? "Mark as Good" : "Start Bisect — This Commit Is Good"),
+                                  (.skip, "Skip This Commit")] where running || mark != .skip {
+                let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+                i.target = self
+                i.representedObject = MenuAction { Task { await model.bisect(mark, commit.id) } }
+                bsub.addItem(i)
+            }
+            bisect.submenu = bsub
+            menu.addItem(bisect)
             let reset = NSMenuItem(title: branch.map { "Reset “\($0)” to Here" } ?? "Reset HEAD to Here", action: nil, keyEquivalent: "")
             let sub = NSMenu()
             for (mode, title) in [(Repository.ResetMode.soft, "Soft — keep changes staged"),
