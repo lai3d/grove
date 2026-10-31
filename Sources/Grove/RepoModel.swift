@@ -134,6 +134,11 @@ final class RepoModel {
     }
     private(set) var stashDiff = ""
     var showStashSheet = false
+
+    // Commit operations
+    var tagSheet: Commit?
+    var pendingReset: (commit: Commit, mode: Repository.ResetMode)?
+    var pendingDeleteTag: Ref?
     var pendingDropStash: Stash?
     var pendingDiscard: (hunk: Int, lines: Set<Int>?)?
     var selectedEntry: ChangeEntry? { entry(for: selectedChangeID) }
@@ -649,5 +654,38 @@ final class RepoModel {
             guard let self, self.selectedStashFileID == id else { return }
             self.stashDiff = text
         }
+    }
+
+    // MARK: Commit operations
+
+    func cherryPick(_ commit: Commit) async { await perform { try await $0.cherryPick(commit) } }
+
+    func revert(_ commit: Commit) async { await perform { try await $0.revert(commit) } }
+
+    func reset(_ mode: Repository.ResetMode, to commit: Commit) async {
+        await perform { try await $0.reset(mode, to: commit.id) }
+    }
+
+    func validateTagName(_ name: String) async -> String? {
+        guard let repo else { return nil }
+        if let problem = await repo.validateTagName(name) { return problem }
+        if refs.contains(where: { $0.kind == .tag && $0.name == name }) { return "Tag “\(name)” already exists" }
+        return nil
+    }
+
+    func createTag(_ name: String, at commit: Commit, message: String) async -> String? {
+        guard let repo else { return nil }
+        do {
+            try await repo.createTag(name, at: commit.id, message: message)
+        } catch {
+            return "\(error)"
+        }
+        await refresh()
+        return nil
+    }
+
+    func deleteTag(_ ref: Ref) async {
+        await perform { try await $0.deleteTag(ref.name) }
+        if case .ref(ref.id)? = sidebarSelection { sidebarSelection = .history }
     }
 }

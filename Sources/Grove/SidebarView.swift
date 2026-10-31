@@ -192,6 +192,10 @@ struct RefMenu: View {
             Button("Rename…") { model.branchSheet = .rename(ref) }
             Button("Delete…") { model.pendingDelete = ref }.disabled(current)
         }
+        if ref.kind == .tag {
+            Divider()
+            Button("Delete Tag…") { model.pendingDeleteTag = ref }
+        }
         Divider()
         Button("Copy Name") {
             NSPasteboard.general.clearContents()

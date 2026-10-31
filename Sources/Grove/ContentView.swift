@@ -60,6 +60,20 @@ struct WelcomeView: View {
 struct RepoWindow: View {
     @State private var model: RepoModel
 
+    private var resetTitle: String {
+        guard let r = model.pendingReset else { return "" }
+        return "Reset “\(model.currentBranch ?? "HEAD")” to \(r.commit.shortID)?"
+    }
+
+    private var resetMessage: String {
+        switch model.pendingReset?.mode {
+        case .soft?: "Commits after it are undone; their changes stay staged."
+        case .mixed?: "Commits after it are undone; their changes stay in the working tree, unstaged."
+        case .hard?: "Commits after it AND all uncommitted changes are discarded. Only the reflog can bring them back."
+        case nil: ""
+        }
+    }
+
     private var discardTitle: String {
         guard let e = model.pendingDiscardFiles else { return "" }
         return e.count == 1 ? "Discard changes to “\(e[0].change.path)”?" : "Discard changes to \(e.count) files?"
@@ -124,6 +138,25 @@ struct RepoWindow: View {
         .sheet(item: $model.branchSheet) { BranchNameSheet(model: model, sheet: $0) }
         .sheet(item: $model.credentialPrompt) { CredentialSheet(prompt: $0) }
         .sheet(isPresented: $model.showStashSheet) { StashSheet(model: model) }
+        .sheet(item: $model.tagSheet) { TagSheet(model: model, commit: $0) }
+        .confirmationDialog(resetTitle,
+                            isPresented: Binding(get: { model.pendingReset != nil }, set: { if !$0 { model.pendingReset = nil } })) {
+            if let r = model.pendingReset {
+                Button("Reset (\(r.mode.rawValue))", role: r.mode == .hard ? .destructive : nil) {
+                    Task { await model.reset(r.mode, to: r.commit) }
+                }
+            }
+        } message: {
+            Text(resetMessage)
+        }
+        .confirmationDialog("Delete tag “\(model.pendingDeleteTag?.name ?? "")”?",
+                            isPresented: Binding(get: { model.pendingDeleteTag != nil }, set: { if !$0 { model.pendingDeleteTag = nil } })) {
+            Button("Delete", role: .destructive) {
+                if let t = model.pendingDeleteTag { Task { await model.deleteTag(t) } }
+            }
+        } message: {
+            Text("Only the local tag is deleted.")
+        }
         .confirmationDialog("Drop stash “\(model.pendingDropStash.map(StashView.title) ?? "")”?",
                             isPresented: Binding(get: { model.pendingDropStash != nil }, set: { if !$0 { model.pendingDropStash = nil } })) {
             Button("Drop", role: .destructive) {

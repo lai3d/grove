@@ -142,10 +142,27 @@ struct CommitTable: NSViewRepresentable {
                 menu.addItem(i)
             }
             let model = self.model
+            let branch = model.currentBranch
             item("New Branch Here…") {
                 model.branchSheet = .create(startPoint: commit.id, label: "\(commit.shortID) “\(commit.subject)”")
             }
+            item("New Tag Here…") { model.tagSheet = commit }
             item("Check Out Detached") { Task { await model.checkoutDetached(commit.id) } }
+            menu.addItem(.separator())
+            item(branch.map { "Cherry-Pick onto “\($0)”" } ?? "Cherry-Pick") { Task { await model.cherryPick(commit) } }
+            item("Revert Commit") { Task { await model.revert(commit) } }
+            let reset = NSMenuItem(title: branch.map { "Reset “\($0)” to Here" } ?? "Reset HEAD to Here", action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for (mode, title) in [(Repository.ResetMode.soft, "Soft — keep changes staged"),
+                                  (.mixed, "Mixed — keep changes unstaged"),
+                                  (.hard, "Hard — discard all changes…")] {
+                let i = NSMenuItem(title: title, action: #selector(runMenuAction(_:)), keyEquivalent: "")
+                i.target = self
+                i.representedObject = MenuAction { model.pendingReset = (commit, mode) }
+                sub.addItem(i)
+            }
+            reset.submenu = sub
+            menu.addItem(reset)
             menu.addItem(.separator())
             item("Copy SHA") { Self.copy(commit.id) }
             item("Copy Subject") { Self.copy(commit.subject) }

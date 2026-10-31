@@ -24,7 +24,7 @@ Estimates are Claude Code session time.
 | 1.5 | ✅ Hunk & line staging | Diff parser in Core; stage / unstage / discard a hunk or selected lines via `git apply` | 0.6h |
 | 1.6 | ✅ Discard & stash | Discard file changes (confirm); stash save / apply / pop / drop, stashes in sidebar with their diff | 0.4h |
 | 1.7 | ✅ Commit polish | Amend (loads last message), subject-length guide, sign-off | 0.2h |
-| 1.8 | ⬜ Commit context menu | Copy SHA / subject, checkout detached, branch / tag here, cherry-pick, revert, reset soft / mixed / hard (confirm) | 0.4h |
+| 1.8 | ✅ Commit context menu | Copy SHA / subject, checkout detached, branch / tag here, cherry-pick, revert, reset soft / mixed / hard (confirm) | 0.4h |
 
 ## Phase 2 — Navigation & power
 

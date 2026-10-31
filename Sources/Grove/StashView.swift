@@ -80,3 +80,46 @@ struct StashSheet: View {
         }
     }
 }
+
+struct TagSheet: View {
+    let model: RepoModel
+    let commit: Commit
+    @State private var name = ""
+    @State private var message = ""
+    @State private var problem: String?
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("New Tag").font(.headline)
+            Text("At \(commit.shortID) “\(commit.subject)”").foregroundStyle(.secondary).lineLimit(2)
+            TextField("Tag name", text: $name).textFieldStyle(.roundedBorder)
+            TextField("Message (optional — makes an annotated tag)", text: $message, axis: .vertical)
+                .textFieldStyle(.roundedBorder)
+                .lineLimit(2...5)
+            if let problem, !name.isEmpty {
+                Text(problem).font(.callout).foregroundStyle(.red)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Create") { create() }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(name.isEmpty || problem != nil)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .task(id: name) {
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            problem = await model.validateTagName(name)
+        }
+    }
+
+    private func create() {
+        Task {
+            if let e = await model.createTag(name, at: commit, message: message) { problem = e } else { dismiss() }
+        }
+    }
+}

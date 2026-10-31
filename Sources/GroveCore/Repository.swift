@@ -308,6 +308,42 @@ public actor Repository {
         guard hasUntracked else { return "" }
         return try await git.runString(["show", "--format=", "--no-ext-diff", "\(stash.id)^3", "--", file.path], in: root)
     }
+
+    // MARK: Commit operations
+
+    /// Lightweight tag when `message` is empty, annotated otherwise.
+    public func createTag(_ name: String, at commit: String, message: String = "") async throws {
+        if message.isEmpty {
+            _ = try await git.run(["tag", name, commit], in: root)
+        } else {
+            _ = try await git.run(["tag", "-a", name, "-F", "-", commit], in: root, input: Data(message.utf8))
+        }
+    }
+
+    public func deleteTag(_ name: String) async throws {
+        _ = try await git.run(["tag", "-d", name], in: root)
+    }
+
+    public nonisolated func validateTagName(_ name: String) async -> String? {
+        if name.isEmpty { return "Name is empty" }
+        let ok = (try? await git.run(["check-ref-format", "refs/tags/\(name)"], in: root)) != nil
+        return ok ? nil : "“\(name)” is not a valid tag name"
+    }
+
+    /// Merge commits are picked / reverted relative to their first parent.
+    public func cherryPick(_ commit: Commit) async throws {
+        _ = try await git.run(["cherry-pick"] + (commit.isMerge ? ["-m", "1"] : []) + [commit.id], in: root)
+    }
+
+    public func revert(_ commit: Commit) async throws {
+        _ = try await git.run(["revert", "--no-edit"] + (commit.isMerge ? ["-m", "1"] : []) + [commit.id], in: root)
+    }
+
+    public enum ResetMode: String, Sendable, CaseIterable { case soft, mixed, hard }
+
+    public func reset(_ mode: ResetMode, to commit: String) async throws {
+        _ = try await git.run(["reset", "-q", "--\(mode.rawValue)", commit], in: root)
+    }
 }
 
 extension GitError {
