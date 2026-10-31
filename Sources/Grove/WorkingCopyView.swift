@@ -40,7 +40,8 @@ struct WorkingCopyView: View {
         Section {
             ForEach(entries) { e in
                 HStack {
-                    FileRow(letter: Character(e.letter), path: e.change.path, origPath: e.change.origPath)
+                    FileRow(letter: Character(e.letter), path: e.change.path, origPath: e.change.origPath,
+                            isLFS: model.lfsTracked.contains(e.change.path))
                     Spacer()
                     Button { Task { await perform([e]) } } label: { Image(systemName: icon) }
                         .buttonStyle(.borderless)

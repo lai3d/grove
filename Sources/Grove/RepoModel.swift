@@ -135,6 +135,10 @@ final class RepoModel {
     var openRequest: URL?
     /// GitHub / GitLab / Bitbucket web URLs for the main remote.
     private(set) var hosted: HostedRepo?
+    /// Paths (among those shown) that Git LFS manages.
+    private(set) var lfsTracked: Set<String> = []
+    /// The repository uses LFS but git-lfs isn't installed.
+    private(set) var lfsMissing = false
     var isFiltering: Bool { filtered != nil }
     var displayCount: Int { filtered?.count ?? rows.count }
 
@@ -283,6 +287,7 @@ final class RepoModel {
             submodules = (try? await m) ?? []
             hosted = await h
             if showsReflog { loadReflog() }
+            lfsMissing = repo.usesLFS ? !(await repo.lfsInstalled()) : false
         }
     }
 
@@ -307,6 +312,7 @@ final class RepoModel {
             self.decorations = GitParse.decorations(refs: self.refs, head: await repo.headID(), currentBranch: self.currentBranch)
             self.changes = try await status
             self.operation = repo.operation()
+            noteLFS(self.changes.map(\.path))
             let all = stagedEntries + unstagedEntries + conflictEntries
             if let id = selectedChangeID, !all.contains(where: { $0.id == id }) {
                 // Fully staged / unstaged: follow the file to the other list.
@@ -516,6 +522,7 @@ final class RepoModel {
                 let d = CommitDetail(commit: commit, message: try await message, files: try await files)
                 guard let self, !Task.isCancelled, self.selectedCommitID == commit.id else { return }
                 self.detail = d
+                self.noteLFS(d.files.map(\.path))
                 self.signature = nil
                 self.selectedFileID = d.files.first?.id
                 self.loadCommitFileDiff()
@@ -1265,6 +1272,16 @@ final class RepoModel {
             async let old: Data? = parent == nil ? nil : await repo.blob("\(parent!):\(f.origPath ?? f.path)")
             async let new: Data? = await repo.blob("\(sha):\(f.path)")
             return (await old, await new)
+        }
+    }
+
+    // MARK: LFS
+
+    private func noteLFS(_ paths: [String]) {
+        guard let repo, repo.usesLFS, !paths.isEmpty else { return }
+        Task {
+            let found = await repo.lfsPaths(paths)
+            if !found.isSubset(of: lfsTracked) { lfsTracked.formUnion(found) }
         }
     }
 }

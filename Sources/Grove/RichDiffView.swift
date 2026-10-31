@@ -38,7 +38,9 @@ struct DiffPane: View {
                 .background(.bar)
                 .overlay(alignment: .bottom) { Divider() }
             }
-            if let diff, diff.isBinary, let path, ImageDiffView.isImage(path), let blobs {
+            if let diff, let lfs = diff.lfsChange {
+                LFSDiffView(old: lfs.old, new: lfs.new)
+            } else if let diff, diff.isBinary, let path, ImageDiffView.isImage(path), let blobs {
                 ImageDiffView(blobs: blobs).id(text)
             } else if let diff, !diff.hunks.isEmpty, diff.hunks.reduce(0, { $0 + $1.lines.count }) <= Self.maxRichLines {
                 RichDiffView(diff: diff, path: path ?? diff.newPath ?? diff.oldPath ?? "", mode: mode)
@@ -241,5 +243,41 @@ struct CheckerBoard: View {
                 }
             }
         }
+    }
+}
+
+struct LFSDiffView: View {
+    let old: LFSPointer?
+    let new: LFSPointer?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "externaldrive.connected.to.line.below").font(.system(size: 34)).foregroundStyle(.secondary)
+            Text("Git LFS object").font(.headline)
+            HStack(spacing: 18) {
+                side("Before", old)
+                Image(systemName: "arrow.right").foregroundStyle(.secondary)
+                side("After", new)
+            }
+            if let o = old, let n = new {
+                let delta = n.size - o.size
+                Text(delta == 0 ? "Same size" : "\(delta > 0 ? "+" : "−")\(ByteCountFormatter.string(fromByteCount: abs(delta), countStyle: .file))")
+                    .font(.callout).foregroundStyle(delta > 0 ? .orange : .green)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func side(_ title: String, _ p: LFSPointer?) -> some View {
+        VStack(spacing: 3) {
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            if let p {
+                Text(ByteCountFormatter.string(fromByteCount: p.size, countStyle: .file)).font(.title3.monospacedDigit())
+                Text(String(p.oid.prefix(12))).font(.caption.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+            } else {
+                Text("—").font(.title3).foregroundStyle(.secondary)
+            }
+        }
+        .frame(minWidth: 120)
     }
 }

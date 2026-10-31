@@ -254,6 +254,18 @@ struct HistoryView: View {
     var body: some View {
         VSplitView {
             VStack(spacing: 0) {
+                if model.lfsMissing {
+                    HStack(spacing: 8) {
+                        Image(systemName: "externaldrive.badge.exclamationmark").foregroundStyle(.orange)
+                        Text("This repository uses Git LFS, but git-lfs isn't installed — large files appear as pointers. Install it with `brew install git-lfs`.")
+                            .font(.callout).lineLimit(2)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 7)
+                    .background(Color.orange.opacity(0.12))
+                    .overlay(alignment: .bottom) { Divider() }
+                }
                 if model.suggestOptimize {
                     HStack(spacing: 10) {
                         Image(systemName: "bolt.fill").foregroundStyle(.yellow)
@@ -319,7 +331,7 @@ struct CommitDetailPane: View {
                 .frame(maxHeight: 220)
                 Divider()
                 List(d.files, selection: $model.selectedFileID) { file in
-                    FileRow(letter: file.letter, path: file.path, origPath: file.origPath)
+                    FileRow(letter: file.letter, path: file.path, origPath: file.origPath, isLFS: model.lfsTracked.contains(file.path))
                         .contextMenu {
                             Button("Show History of “\((file.path as NSString).lastPathComponent)”") { model.showHistory(of: file.path) }
                             if file.letter != "D" {
@@ -353,6 +365,7 @@ struct FileRow: View {
     let letter: Character
     let path: String
     var origPath: String?
+    var isLFS = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -362,6 +375,12 @@ struct FileRow: View {
                 .frame(width: 16, height: 16)
                 .background(RoundedRectangle(cornerRadius: 3).fill(Self.color(letter)))
             Text((path as NSString).lastPathComponent).lineLimit(1)
+            if isLFS {
+                Text("LFS").font(.system(size: 9, weight: .bold)).padding(.horizontal, 3)
+                    .background(RoundedRectangle(cornerRadius: 3).stroke(.secondary))
+                    .foregroundStyle(.secondary)
+                    .help("Stored with Git LFS")
+            }
             let dir = (path as NSString).deletingLastPathComponent
             if let origPath {
                 Text("← \(origPath)").foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
