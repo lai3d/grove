@@ -567,6 +567,7 @@ struct OperationBanner: View {
             let progress = (step != nil && total != nil) ? " — commit \(step!) of \(total!)" : ""
             return "Rebasing “\(b ?? branch)” onto \(onto ?? "")\(progress)"
         case .cherryPick: return "Cherry-pick paused"
+        case .applyMailbox: return "Applying patches paused"
         case .revert: return "Revert paused"
         }
     }

@@ -192,6 +192,8 @@ struct CommitTable: NSViewRepresentable {
             if let h = model.hosted {
                 item("Open Commit on \(h.host.rawValue)") { model.openWeb(h.commit(commit.id)) }
             }
+            item("Copy as Patch") { Task { await model.copyPatch([commit]) } }
+            item("Save as Patch…") { Task { await model.savePatch([commit]) } }
             item("Copy SHA") { Self.copy(commit.id) }
             item("Copy Subject") { Self.copy(commit.subject) }
         }
@@ -214,6 +216,8 @@ struct CommitTable: NSViewRepresentable {
                 item("Squash \(n) Commits into One") { Task { await model.squash(commits) } }
             }
             menu.addItem(.separator())
+            item("Copy \(n) Commits as Patches") { Task { await model.copyPatch(commits) } }
+            item("Save \(n) Commits as Patches…") { Task { await model.savePatch(commits) } }
             item("Copy \(n) SHAs") { Self.copy(commits.map(\.id).joined(separator: "\n")) }
             item("Copy \(n) Subjects") { Self.copy(commits.map(\.subject).joined(separator: "\n")) }
         }

@@ -73,4 +73,4 @@ Estimates are Claude Code session time.
 | 5.4 | ✅ Commit message help | Honors `commit.template` (text pre-filled, `#` guidance shown as the hint; an untouched template can't be committed), recent-messages menu; subject length guide already shipped | 0.3h |
 | 5.5 | ✅ Repository overview | Welcome window lists recents with branch, dirty count and ahead / behind, refreshed in the background | 0.4h |
 | 5.6 | ✅ Stash selected files | Stash only the selected working-copy files; keep-index and include-untracked options | 0.3h |
-| 5.7 | ⬜ Patches | Copy / save a commit (or several) as a patch (`format-patch`), apply a patch file (`git am` / `git apply`) | 0.4h |
+| 5.7 | ✅ Patches | Copy / save a commit (or several) as a patch (`format-patch`), apply a patch file (`git am` / `git apply`) | 0.4h |

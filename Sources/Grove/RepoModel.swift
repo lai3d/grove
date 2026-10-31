@@ -926,6 +926,50 @@ final class RepoModel {
         await undoableStep("Revert \(commits.count) Commits") { try await $0.revert(commits) }
     }
 
+    // MARK: Patches
+
+    func copyPatch(_ commits: [Commit]) async {
+        guard let repo else { return }
+        do {
+            let text = try await repo.formatPatches(commits)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+        } catch { errorMessage = "\(error)" }
+    }
+
+    func savePatch(_ commits: [Commit]) async {
+        guard let repo else { return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = commits.count == 1
+            ? "\(commits[0].shortID)-\(Self.slug(commits[0].subject)).patch" : "\(commits.count)-commits.patch"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try await repo.formatPatches(commits).write(to: url, atomically: true, encoding: .utf8)
+        } catch { errorMessage = "\(error)" }
+    }
+
+    static func slug(_ s: String) -> String {
+        let words = s.lowercased().split { !$0.isLetter && !$0.isNumber }.prefix(8)
+        return words.joined(separator: "-")
+    }
+
+    /// Mailboxes (`format-patch`) become commits via `git am` (undoable, pauses on conflicts);
+    /// plain diffs are applied to the working tree and index.
+    func applyPatchFile() async {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Choose a patch (from git format-patch or git diff)"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        if Repository.patchKind(text) == .mailbox {
+            await undoableStep("Apply Patch") { try await $0.applyPatch(url) }
+        } else {
+            await perform { try await $0.applyPatch(url) }
+            sidebarSelection = .workingCopy
+        }
+    }
+
     func squash(_ commits: [Commit]) async {
         await undoableStep("Squash \(commits.count) Commits") { try await $0.squash(commits) }
     }

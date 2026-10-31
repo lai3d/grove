@@ -381,6 +381,7 @@ public actor Repository {
             (try? String(contentsOf: gitDir.appendingPathComponent(name), encoding: .utf8))?
                 .trimmingCharacters(in: .whitespacesAndNewlines)
         }
+        if exists("rebase-apply/applying") { return .applyMailbox }
         for dir in ["rebase-merge", "rebase-apply"] where exists(dir) {
             let branch = read("\(dir)/head-name").map { $0.replacingOccurrences(of: "refs/heads/", with: "") }
             let onto = read("\(dir)/onto").map { String($0.prefix(8)) }

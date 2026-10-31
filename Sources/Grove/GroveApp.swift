@@ -85,6 +85,8 @@ struct GroveCommands: Commands {
             Button("Stash Changes…") { model?.showStashSheet = true }
                 .keyboardShortcut("s", modifiers: [.command, .option])
                 .disabled(model?.changes.isEmpty ?? true)
+            Button("Apply Patch…") { Task { await model?.applyPatchFile() } }
+                .disabled(model == nil || model?.operation != nil)
             Button("Optimize Repository") { model?.optimizeRepository() }
                 .disabled(model == nil || model?.remoteOperation != nil)
             Button("Show Activity") { model?.showActivity.toggle() }

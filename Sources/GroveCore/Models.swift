@@ -91,6 +91,8 @@ public enum RepoOperation: Sendable, Hashable {
     case rebase(branch: String?, onto: String?, step: Int?, total: Int?)
     case cherryPick
     case revert
+    /// `git am` stopped on a patch that doesn't apply.
+    case applyMailbox
 
     public var name: String {
         switch self {
@@ -98,6 +100,7 @@ public enum RepoOperation: Sendable, Hashable {
         case .rebase: "rebase"
         case .cherryPick: "cherry-pick"
         case .revert: "revert"
+        case .applyMailbox: "am"
         }
     }
 
